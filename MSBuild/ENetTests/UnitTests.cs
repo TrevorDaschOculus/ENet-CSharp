@@ -24,6 +24,7 @@ using System;
 using System.Net;
 using System.Diagnostics;
 using ENet;
+using System.Linq;
 
 public class UnitTests
 {
@@ -67,13 +68,22 @@ public class UnitTests
     }
 
     [Test]
-    public void SendAndRecv()
+    [TestCase(false, 1)]
+    [TestCase(false, 2)]
+    [TestCase(false, 3)]
+    [TestCase(false, 4)]
+    [TestCase(false, 5)]
+    [TestCase(true, 1)]
+    [TestCase(true, 2)]
+    [TestCase(true, 3)]
+    [TestCase(true, 4)]
+    [TestCase(true, 5)]
+    public void SendAndRecv(bool useSsl, int maxClients)
     {
         const ushort port = 7777;
-        const int maxClients = 1;
         const byte dataVal = 42;
 
-        int clientEvents = 0;
+        int[] clientEvents = new int[maxClients];
         int clientConnected = 0;
         int clientDisconnected = 0;
         int clientTimeout = 0;
@@ -86,21 +96,43 @@ public class UnitTests
         int serverTimeout = 0;
         int serverNone = 0;
 
-        ClientState clientState = ClientState.None;
+        ClientState[] clientStates = new ClientState[maxClients];
 
-        using (Host client = new Host())
-        using (Host server = new Host())
+        Host[] clients = new Host[maxClients];
+        for (int i = 0; i < clients.Length; i++)
+        {
+            clients[i] = new Host();
+        }
+        Host server = new Host();
+        try
         {
             Address address = new Address();
             address.Port = port;
-            server.Create(address, maxClients);
 
+            SslConfiguration serverConfiguration = new SslConfiguration();
+            SslConfiguration clientConfiguration = new SslConfiguration();
+
+            if (useSsl)
+            {
+                serverConfiguration.Mode = SslMode.Server;
+                serverConfiguration.CertificatePath = "testCert.pem";
+                serverConfiguration.PrivateKeyPath = "testKey.pem";
+
+                clientConfiguration.Mode = SslMode.Client;
+                clientConfiguration.ValidateCertificate = false;
+            }
+
+            server.Create(address, maxClients, sslConfiguration: serverConfiguration);
             address.SetIP("127.0.0.1");
-            client.Create();
 
-            Peer clientPeer = default;
+            foreach (var client in clients)
+            {
+                client.Create(sslConfiguration: clientConfiguration);
+            }
+
+            Peer[] clientPeers = new Peer[clients.Length];
             Stopwatch sw = Stopwatch.StartNew();
-            while (clientState != ClientState.Disconnected && sw.ElapsedMilliseconds < 10000)
+            while (clientStates.Any(clientState => clientState != ClientState.Disconnected) && sw.ElapsedMilliseconds < 10000)
             {
                 while (server.Service(15, out Event netEvent) > 0)
                 {
@@ -115,7 +147,15 @@ public class UnitTests
                             break;
                         case EventType.Disconnect:
                             serverDisconnected++;
-                            clientState = ClientState.Disconnected;
+                            for (int c2 = 0; c2 < clientStates.Length; c2++)
+                            {
+                                // disconnect the first disconnecting client (doesn't really matter which one)
+                                if (clientStates[c2] == ClientState.Disconnecting)
+                                {
+                                    clientStates[c2] = ClientState.Disconnected;
+                                    break;
+                                }
+                            }
                             break;
                         case EventType.Timeout:
                             serverTimeout++;
@@ -136,73 +176,91 @@ public class UnitTests
                 }
                 server.Flush();
 
-                while (client.Service(15, out Event netEvent) > 0)
+                for (int c = 0; c < clients.Length; c++)
                 {
-                    clientEvents++;
-                    switch (netEvent.Type)
+                    var client = clients[c];
+                    while (client.Service(15, out Event netEvent) > 0)
                     {
-                        case EventType.None:
-                            clientNone++;
-                            break;
-                        case EventType.Connect:
-                            clientConnected++;
-                            clientState = ClientState.Connected;
-                            break;
-                        case EventType.Disconnect:
-                            clientDisconnected++;
-                            clientState = ClientState.Disconnected;
-                            break;
-                        case EventType.Timeout:
-                            clientTimeout++;
-                            break;
-                        case EventType.Receive:
-                            clientRecvData++;
-                            byte[] data = new byte[64];
-                            Packet packet = netEvent.Packet;
-                            packet.CopyTo(data);
-                            for (int i = 0; i < data.Length; i++) Assert.True(data[i] == dataVal);
-                            netEvent.Packet.Dispose();
+                        clientEvents[c]++;
+                        switch (netEvent.Type)
+                        {
+                            case EventType.None:
+                                clientNone++;
+                                break;
+                            case EventType.Connect:
+                                clientConnected++;
+                                clientStates[c] = ClientState.Connected;
+                                break;
+                            case EventType.Disconnect:
+                                clientDisconnected++;
+                                clientStates[c] = ClientState.Disconnected;
+                                break;
+                            case EventType.Timeout:
+                                clientTimeout++;
+                                break;
+                            case EventType.Receive:
+                                clientRecvData++;
+                                byte[] data = new byte[64];
+                                Packet packet = netEvent.Packet;
+                                packet.CopyTo(data);
+                                for (int i = 0; i < data.Length; i++) Assert.True(data[i] == dataVal);
+                                netEvent.Packet.Dispose();
 
-                            clientState = ClientState.RecvData;
-                            break;
+                                clientStates[c] = ClientState.RecvData;
+                                break;
+                        }
                     }
-                }
-                client.Flush();
+                    client.Flush();
 
-                if (clientState == ClientState.None)
-                {
-                    clientState = ClientState.Connecting;
-                    clientPeer = client.Connect(address);
-                }
-                else if (clientState == ClientState.Connected)
-                {
-                    Packet packet = default(Packet);
-                    byte[] data = new byte[64];
-                    for (int i = 0; i < data.Length; i++) data[i] = dataVal;
+                    if (clientStates[c] == ClientState.None)
+                    {
+                        clientStates[c] = ClientState.Connecting;
+                        clientPeers[c] = client.Connect(address);
+                    }
+                    else if (clientStates[c] == ClientState.Connected)
+                    {
+                        Packet packet = default(Packet);
+                        byte[] data = new byte[64];
+                        for (int i = 0; i < data.Length; i++) data[i] = dataVal;
 
-                    packet.Create(data);
-                    clientPeer.Send(0, ref packet);
+                        packet.Create(data);
+                        clientPeers[c].Send(0, ref packet);
 
-                    clientState = ClientState.SendData;
-                }
-                else if (clientState == ClientState.RecvData)
-                {
-                    clientPeer.DisconnectNow(0);
-                    clientState = ClientState.Disconnecting;
+                        clientStates[c] = ClientState.SendData;
+                    }
+                    else if (clientStates[c] == ClientState.RecvData)
+                    {
+                        clientPeers[c].DisconnectNow(0);
+                        clientStates[c] = ClientState.Disconnecting;
+                    }
                 }
             }
         }
+        finally
+        {
+            server.Dispose();
+            foreach (var client in clients)
+            {
+                client.Dispose();
+            }
+        }
 
-        Assert.True(clientEvents != 0, "client host never generated an event");
+        for (int c = 0; c < clientEvents.Length; c++)
+        {
+            Assert.True(clientEvents[c] != 0, "client host never generated an event");
+        }
         Assert.True(serverEvents != 0, "server host never generated an event");
 
-        Assert.True(clientState == ClientState.Disconnected, "client didn't fully disconnect");
+        for (int c = 0; c < clients.Length; c++)
+        {
+            Assert.True(clientStates[c] == ClientState.Disconnected, "client didn't fully disconnect");
+        }
 
-        Assert.AreEqual(1, clientConnected, "client should have connected once");
-        Assert.AreEqual(1, serverConnected, "server should have had one inbound connect");
+        Assert.AreEqual(maxClients, clientConnected, "client should have connected once per client");
+        Assert.AreEqual(maxClients, serverConnected, "server should have had one inbound connect per client");
 
-        Assert.AreEqual(1, clientRecvData, "client should have recvd once");
-        Assert.AreEqual(1, serverRecvData, "server should have recvd once");
+        Assert.AreEqual(maxClients, clientRecvData, "client should have recvd once per client");
+        Assert.AreEqual(maxClients, serverRecvData, "server should have recvd once per client");
 
         Assert.AreEqual(0, clientTimeout, "client had timeout events");
         Assert.AreEqual(0, serverTimeout, "server had timeout events");
@@ -210,6 +268,6 @@ public class UnitTests
         Assert.AreEqual(0, clientNone, "client had none events");
         Assert.AreEqual(0, serverNone, "server had none events");
 
-        Assert.AreEqual(1, serverDisconnected, "server should have had one client disconnect");
+        Assert.AreEqual(maxClients, serverDisconnected, "server should have had one client disconnect per client");
     }
 }

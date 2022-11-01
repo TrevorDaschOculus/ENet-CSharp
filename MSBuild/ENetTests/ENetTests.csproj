@@ -37,6 +37,9 @@ SOFTWARE.
     <ProjectReference Include="$(CsDir)ENetCSharp\ENetCSharp.csproj" />
   </ItemGroup>
 
+
   <Import Project="$(CsDir)CMake\CMake.Copy.targets" />
+  <Import Project="ENetTests.GenCerts.targets" />
+  
   
 </Project>

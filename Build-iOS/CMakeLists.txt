@@ -6,7 +6,7 @@ set(ENET_DEBUG OFF CACHE BOOL "Do debug things")
 set(ENET_PLUGIN_DIR_BASE "${CMAKE_CURRENT_SOURCE_DIR}/Unity/Plugins")
 set(ENET_PLUGIN_DIR_ARCH "x86_64")
 set(ENET_DEFINES -DENET_NO_PRAGMA_LINK -DENET_DLL)
-set(ENET_DEPS "")
+set(ENET_DEPS OpenSSL::SSL OpenSSL::Crypto)
 set(ENET_SRCDIR "../Source/Native")
 set(ENET_SRCS
         ${ENET_SRCDIR}/enet.c
@@ -19,6 +19,7 @@ if(ENET_DEBUG)
     list(APPEND ENET_DEFINES -DENET_DEBUG)
 endif()
 
+find_package(OpenSSL REQUIRED)
 include_directories(${ENET_SRCDIR})
 add_library(${ENET_LIB_NAME} STATIC ${ENET_SRCS})
 target_link_libraries(${ENET_LIB_NAME} ${ENET_DEPS})

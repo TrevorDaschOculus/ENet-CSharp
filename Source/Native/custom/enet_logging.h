@@ -6,6 +6,9 @@
 #if __APPLE__
 #include <TargetConditionals.h>
 #endif
+#if __ANDROID__
+#include <android/log.h>
+#endif
 
 // TODO: Make better filenames; ie. enet_log.pid.txt
 #define ENET_LOG_FILE "enet-debug.log"
@@ -22,6 +25,13 @@ static const char *const enet_log_type_names[] = {
 	[ENET_LOG_TYPE_ERROR] = "ERROR",
 };
 
+#if __ANDROID__
+static const int enet_log_type_android[] = {
+	[ENET_LOG_TYPE_TRACE] = ANDROID_LOG_VERBOSE,
+	[ENET_LOG_TYPE_ERROR] = ANDROID_LOG_ERROR,
+};
+#endif
+
 #if ENET_DEBUG
 // Debug
 #define ENET_LOG_TRACE(...) enet_log_to_file(ENET_LOG_TYPE_TRACE, __FUNCTION__, __LINE__, __VA_ARGS__)
@@ -36,9 +46,16 @@ static inline void enet_log_to_file(enum enet_log_type type, const char *func, i
 
 	time_buf[strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", local_time)] = '\0';
 
-#if __ANDROID__ || (__APPLE__ && TARGET_OS_IPHONE)
+#if __ANDROID__
+	// Android Debugging - Use Android's built in log method to send logs to logcat
+	va_start(args, fmt);
+	__android_log_vprint(enet_log_type_android[type], "ENet", fmt, args);
+	va_end(args);
+
+	// -- End logging for Android -- //
+#elif (__APPLE__ && TARGET_OS_IPHONE)
 	// iOS Debugging - Sandboxed logging can't write file. This might extend even into Android!
-	// Can't write to files without the file permission... so don't do that if we're on iOS/Android.
+	// Can't write to files without the file permission... so don't do that if we're on iOS.
 	// https://github.com/SoftwareGuy/ENet-CSharp/issues/15
 
 	// Write the initial debug text to stdout.
@@ -50,7 +67,7 @@ static inline void enet_log_to_file(enum enet_log_type type, const char *func, i
 	va_end(args);
 	printf("\n");
 
-	// -- End logging for Android and Apple iOS -- //
+	// -- End logging for Apple iOS -- //
 #else
 	// Open the log file, and if we can't, then short-circuit.
 	if (!enet_log_fp) enet_log_fp = fopen(ENET_LOG_FILE, "a");

@@ -16,12 +16,17 @@ if (ENET_DEBUG)
     add_definitions(-DENET_DEBUG)
 endif()
 
+
+find_package(OpenSSL REQUIRED)
+
 if (ENET_STATIC)
     add_library(enet_static STATIC enet.c ${SOURCES})
 
     if (NOT UNIX)
-        target_link_libraries(enet_static winmm ws2_32)
+        target_link_libraries(enet_static winmm ws2_32 OpenSSL::SSL OpenSSL:Crypto)
         SET_TARGET_PROPERTIES(enet_static PROPERTIES PREFIX "")
+    else()
+        target_link_libraries(enet_static OpenSSL::SSL OpenSSL::Crypto)
     endif()
 endif()
 
@@ -30,7 +35,9 @@ if (ENET_SHARED)
     add_library(enet SHARED enet.c ${SOURCES})
 
     if (NOT UNIX)
-        target_link_libraries(enet winmm ws2_32)
+        target_link_libraries(enet winmm ws2_32 OpenSSL::SSL OpenSSL::Crypto)
         SET_TARGET_PROPERTIES(enet PROPERTIES PREFIX "")
+    else()
+        target_link_libraries(enet OpenSSL::SSL OpenSSL::Crypto)
     endif()
 endif()

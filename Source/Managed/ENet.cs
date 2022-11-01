@@ -1,7 +1,7 @@
-/*  
+/*
  * 	Managed C# wrapper for an extended version of ENet
  *	This is a fork from upstream and is available at http://github.com/SoftwareGuy/ENet-CSharp
- *  
+ *
  *	Copyright (c) 2019-2021 Matt Coburn (SoftwareGuy/Coburn64), Chris Burns (c6burns)
  *  Copyright (c) 2013 James Bellinger, 2016 Nate Shoffner, 2018 Stanislav Denisov
  *
@@ -68,11 +68,28 @@ namespace ENet
 		Zombie = 9
 	}
 
+	public enum SslMode
+	{
+		None = 0,
+		Server = 1,
+		Client = 2
+	}
+
 	[StructLayout(LayoutKind.Explicit, Size = 18)]
 	internal struct ENetAddress
 	{
 		[FieldOffset(16)]
 		public ushort port;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct ENetSslConfiguration
+	{
+		public SslMode mode;
+		public IntPtr certificatePath;
+		public IntPtr privateKeyPath;
+		public int validateCertificate;
+		public IntPtr rootCertificatePath;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -121,6 +138,80 @@ namespace ENet
 				pointerBuffer = new IntPtr[Library.maxPeers];
 
 			return pointerBuffer;
+		}
+	}
+
+	internal class HGlobalMemoryHandle : IDisposable
+	{
+		private IntPtr ptr;
+		public HGlobalMemoryHandle(IntPtr ptr)
+		{
+			this.ptr = ptr;
+		}
+
+		public void Dispose()
+		{
+			Dispose(true);
+			GC.SuppressFinalize(this);
+		}
+
+		private void Dispose(bool disposing)
+		{
+			if (ptr != IntPtr.Zero)
+			{
+				Marshal.FreeHGlobal(ptr);
+				ptr = IntPtr.Zero;
+			}
+		}
+
+		~HGlobalMemoryHandle()
+		{
+			Dispose(false);
+		}
+	}
+
+	internal struct CachedNativeString
+	{
+		private string managedString;
+		private IntPtr nativeString;
+		private HGlobalMemoryHandle memoryHandle;
+
+		private void Reset()
+		{
+			memoryHandle?.Dispose();
+			memoryHandle = null;
+			nativeString = IntPtr.Zero;
+			managedString = null;
+		}
+
+		public string Get(ref IntPtr externalNativeString)
+		{
+			if (nativeString != externalNativeString)
+			{
+				Reset();
+				nativeString = externalNativeString;
+			}
+
+			if (managedString == null && externalNativeString != IntPtr.Zero)
+			{
+				managedString = Marshal.PtrToStringAnsi(externalNativeString);
+			}
+			return managedString;
+		}
+
+		public void Set(ref IntPtr externalNativeString, string value)
+		{
+			if (value == null || value != managedString)
+			{
+				Reset();
+				managedString = value;
+				if (managedString != null)
+				{
+					nativeString = Marshal.StringToHGlobalAnsi(value);
+					memoryHandle = new HGlobalMemoryHandle(nativeString);
+				}
+			}
+			externalNativeString = nativeString;
 		}
 	}
 
@@ -193,6 +284,111 @@ namespace ENet
 				throw new ArgumentNullException("hostName");
 
 			return Native.enet_address_set_hostname(ref nativeAddress, hostName) == 0;
+		}
+	}
+
+	public struct SslConfiguration : IDisposable
+	{
+		private ENetSslConfiguration nativeSslConfiguration;
+
+		// Cache the native strings to keep them alive for the life of this struct
+		private CachedNativeString certificatePath;
+		private CachedNativeString privateKeyPath;
+		private CachedNativeString rootCertificatePath;
+
+		internal ENetSslConfiguration NativeSslConfiguration
+		{
+			get
+			{
+				return nativeSslConfiguration;
+			}
+
+			set
+			{
+				nativeSslConfiguration = value;
+			}
+		}
+
+		internal SslConfiguration(ENetSslConfiguration sslConfiguration)
+		{
+			nativeSslConfiguration = sslConfiguration;
+			certificatePath = default;
+			privateKeyPath = default;
+			rootCertificatePath = default;
+		}
+
+		public void Dispose()
+		{
+			CertificatePath = null;
+			PrivateKeyPath = null;
+			RootCertificatePath = null;
+		}
+
+		public SslMode Mode
+		{
+			get
+			{
+				return nativeSslConfiguration.mode;
+			}
+
+			set
+			{
+				nativeSslConfiguration.mode = value;
+			}
+		}
+
+
+
+		public string CertificatePath
+		{
+			get
+			{
+				return certificatePath.Get(ref nativeSslConfiguration.certificatePath);
+			}
+
+			set
+			{
+				certificatePath.Set(ref nativeSslConfiguration.certificatePath, value);
+			}
+		}
+
+		public string PrivateKeyPath
+		{
+			get
+			{
+				return privateKeyPath.Get(ref nativeSslConfiguration.privateKeyPath);
+			}
+
+			set
+			{
+				privateKeyPath.Set(ref nativeSslConfiguration.privateKeyPath, value);
+			}
+		}
+
+		public bool ValidateCertificate
+		{
+			get
+			{
+				return nativeSslConfiguration.validateCertificate == 1;
+			}
+
+			set
+			{
+				nativeSslConfiguration.validateCertificate = value ? 1 : 0;
+			}
+		}
+
+		public string RootCertificatePath
+		{
+			get
+			{
+				return rootCertificatePath.Get(ref nativeSslConfiguration.rootCertificatePath);
+			}
+
+			set
+			{
+				rootCertificatePath.Set(ref nativeSslConfiguration.rootCertificatePath, value);
+			}
 		}
 	}
 
@@ -464,7 +660,7 @@ namespace ENet
 				throw new ArgumentNullException("destination");
 
 			// Fix by katori, prevents trying to copy a NULL
-			// from native world (ie. disconnect a client)			
+			// from native world (ie. disconnect a client)
 			if (Data == null)
 			{
 				return;
@@ -581,42 +777,7 @@ namespace ENet
 				throw new ArgumentOutOfRangeException("channelLimit");
 		}
 
-		public void Create()
-		{
-			Create(null, 1, 0);
-		}
-
-		public void Create(int bufferSize)
-		{
-			Create(null, 1, 0, 0, 0, bufferSize);
-		}
-
-		public void Create(Address? address, int peerLimit)
-		{
-			Create(address, peerLimit, 0);
-		}
-
-		public void Create(Address? address, int peerLimit, int channelLimit)
-		{
-			Create(address, peerLimit, channelLimit, 0, 0, 0);
-		}
-
-		public void Create(int peerLimit, int channelLimit)
-		{
-			Create(null, peerLimit, channelLimit, 0, 0, 0);
-		}
-
-		public void Create(int peerLimit, int channelLimit, uint incomingBandwidth, uint outgoingBandwidth)
-		{
-			Create(null, peerLimit, channelLimit, incomingBandwidth, outgoingBandwidth, 0);
-		}
-
-		public void Create(Address? address, int peerLimit, int channelLimit, uint incomingBandwidth, uint outgoingBandwidth)
-		{
-			Create(address, peerLimit, channelLimit, incomingBandwidth, outgoingBandwidth, 0);
-		}
-
-		public void Create(Address? address, int peerLimit, int channelLimit, uint incomingBandwidth, uint outgoingBandwidth, int bufferSize)
+		public void Create(Address? address = null, int peerLimit = 1, int channelLimit = 0, uint incomingBandwidth = 0, uint outgoingBandwidth = 0, int bufferSize = 0, SslConfiguration sslConfiguration = default)
 		{
 			if (nativeHost != IntPtr.Zero)
 				throw new InvalidOperationException("Host already created");
@@ -626,15 +787,16 @@ namespace ENet
 
 			ThrowIfChannelsExceeded(channelLimit);
 
+			var nativeSslConfiguration = sslConfiguration.NativeSslConfiguration;
 			if (address != null)
 			{
 				var nativeAddress = address.Value.NativeData;
 
-				nativeHost = Native.enet_host_create(ref nativeAddress, (IntPtr)peerLimit, (IntPtr)channelLimit, incomingBandwidth, outgoingBandwidth, bufferSize);
+				nativeHost = Native.enet_host_create_ssl(ref nativeAddress, (IntPtr)peerLimit, (IntPtr)channelLimit, incomingBandwidth, outgoingBandwidth, bufferSize, ref nativeSslConfiguration);
 			}
 			else
 			{
-				nativeHost = Native.enet_host_create(IntPtr.Zero, (IntPtr)peerLimit, (IntPtr)channelLimit, incomingBandwidth, outgoingBandwidth, bufferSize);
+				nativeHost = Native.enet_host_create_ssl(IntPtr.Zero, (IntPtr)peerLimit, (IntPtr)channelLimit, incomingBandwidth, outgoingBandwidth, bufferSize, ref nativeSslConfiguration);
 			}
 
 			if (nativeHost == IntPtr.Zero)
@@ -1138,8 +1300,27 @@ namespace ENet
 			}
 		}
 
+		/// <summary>
+		/// Because enet has a dependency on ssl and crypto, we need
+		/// to manually ensure they are loaded in the correct order
+		/// on some platforms. To do this, we simply call the init
+		/// methods in the specified order.
+		/// </summary>
+		private static void InitOpenSSL()
+		{
+			const ulong OPENSSL_INIT_LOAD_CRYPTO_STRINGS = 0x00000002L;
+			const ulong OPENSSL_INIT_LOAD_SSL_STRINGS = 0x00200000L;
+			const ulong OPENSSL_INIT_SSL_DEFAULT = OPENSSL_INIT_LOAD_SSL_STRINGS |
+												   OPENSSL_INIT_LOAD_CRYPTO_STRINGS;
+			// Call init crypto to load crypto first
+			Native.OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CRYPTO_STRINGS, IntPtr.Zero);
+			// Call init ssl to load sll second
+			Native.OPENSSL_init_ssl(OPENSSL_INIT_SSL_DEFAULT, IntPtr.Zero);
+		}
+
 		public static bool Initialize()
 		{
+			InitOpenSSL();
 			if (Native.enet_linked_version() != version)
 				throw new InvalidOperationException("ENet native is out of date. Download the latest release from https://github.com/SoftwareGuy/ENet-CSharp/releases");
 
@@ -1151,6 +1332,7 @@ namespace ENet
 			if (callbacks == null)
 				throw new ArgumentNullException("callbacks");
 
+			InitOpenSSL();
 			if (Native.enet_linked_version() != version)
 				throw new InvalidOperationException("ENet native is out of date. Download the latest release from https://github.com/SoftwareGuy/ENet-CSharp/releases");
 
@@ -1176,12 +1358,16 @@ namespace ENet
 		// This should address Unity usage and bug #66: Platform specific Enet / libenet
 		// https://github.com/SoftwareGuy/Ignorance/issues/66
 #if UNITY_EDITOR
-        // We are inside the Unity Editor.
+		// We are inside the Unity Editor.
 #if UNITY_EDITOR_OSX
 		// Unity Editor on macOS needs to use libenet.
 		private const string nativeLibrary = "libenet";
+		private const string cryptoNativeLibrary = "libcrypto";
+		private const string sslNativeLibrary = "libssl";
 #else
-        private const string nativeLibrary = "enet";
+		private const string nativeLibrary = "enet";
+		private const string cryptoNativeLibrary = "crypto";
+		private const string sslNativeLibrary = "ssl";
 #endif
 #endif
 
@@ -1190,14 +1376,30 @@ namespace ENet
 #if __APPLE__ && !(__IOS__ || UNITY_IOS)
 		// Use libenet on macOS.
 		private const string nativeLibrary = "libenet";
+		private const string cryptoNativeLibrary = "libcrypto";
+		private const string sslNativeLibrary = "libssl";
 #elif __IOS__ || UNITY_IOS
         // We're building for a certain mobile fruity OS.
 		private const string nativeLibrary = "__Internal";
+		private const string cryptoNativeLibrary = "__Internal";
+		private const string sslNativeLibrary = "__Internal";
 #else
-		// Assume everything else, Windows et al.		
+		// Assume everything else, Windows et al.
 		private const string nativeLibrary = "enet";
+		private const string cryptoNativeLibrary = "crypto";
+		private const string sslNativeLibrary = "ssl";
 #endif
 #endif
+
+		#region OpenSSL_Crypto
+		[DllImport(cryptoNativeLibrary, CallingConvention = CallingConvention.Cdecl)]
+		internal static extern int OPENSSL_init_crypto(ulong opts, IntPtr settings);
+		#endregion
+
+		#region OpenSSL_SSL
+		[DllImport(sslNativeLibrary, CallingConvention = CallingConvention.Cdecl)]
+		internal static extern int OPENSSL_init_ssl(ulong opts, IntPtr settings);
+		#endregion
 
 		[DllImport(nativeLibrary, CallingConvention = CallingConvention.Cdecl)]
 		internal static extern int enet_initialize();
@@ -1267,6 +1469,12 @@ namespace ENet
 
 		[DllImport(nativeLibrary, CallingConvention = CallingConvention.Cdecl)]
 		internal static extern IntPtr enet_host_create(IntPtr address, IntPtr peerLimit, IntPtr channelLimit, uint incomingBandwidth, uint outgoingBandwidth, int bufferSize);
+
+		[DllImport(nativeLibrary, CallingConvention = CallingConvention.Cdecl)]
+		internal static extern IntPtr enet_host_create_ssl(ref ENetAddress address, IntPtr peerLimit, IntPtr channelLimit, uint incomingBandwidth, uint outgoingBandwidth, int bufferSize, ref ENetSslConfiguration sslConfiguration);
+
+		[DllImport(nativeLibrary, CallingConvention = CallingConvention.Cdecl)]
+		internal static extern IntPtr enet_host_create_ssl(IntPtr address, IntPtr peerLimit, IntPtr channelLimit, uint incomingBandwidth, uint outgoingBandwidth, int bufferSize, ref ENetSslConfiguration sslConfiguration);
 
 		[DllImport(nativeLibrary, CallingConvention = CallingConvention.Cdecl)]
 		internal static extern IntPtr enet_host_connect(IntPtr host, ref ENetAddress address, IntPtr channelCount, uint data);
@@ -1402,5 +1610,9 @@ namespace ENet
 
 		[DllImport(nativeLibrary, CallingConvention = CallingConvention.Cdecl)]
 		internal static extern void enet_peer_reset(IntPtr peer);
+
+#if UNITY_EDITOR
+		public static string nativeLibraryName { get { return nativeLibrary; } }
+#endif
 	}
 }

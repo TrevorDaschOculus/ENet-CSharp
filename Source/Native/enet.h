@@ -28,6 +28,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
+#include <openssl/ssl.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/rand.h>
+#include <openssl/opensslv.h>
 #include "custom/enet_logging.h"
 
 #define ENET_VERSION_MAJOR 2
@@ -187,6 +192,29 @@ extern "C" {
 	typedef uint32_t ENetVersion;
 
 	typedef fd_set ENetSocketSet;
+
+#define ENET_SOCKETSET_EMPTY(sockset)          FD_ZERO (& (sockset))
+#define ENET_SOCKETSET_ADD(sockset, socket)    FD_SET (socket, & (sockset))
+#define ENET_SOCKETSET_REMOVE(sockset, socket) FD_CLR (socket, & (sockset))
+#define ENET_SOCKETSET_CHECK(sockset, socket)  FD_ISSET (socket, & (sockset))
+
+	typedef SSL ENetSsl;
+	typedef SSL_CTX ENetSslCtx;
+	typedef BIO ENetSslBio;
+
+	// Define a custom BIO so we can use a single socket for DTLS
+	int BIO_s_enet_write_ex(BIO* b, const char* data, size_t dlen, size_t* written);
+	int BIO_s_enet_write(BIO* b, const char* data, int dlen);
+	int BIO_s_enet_read_ex(BIO* b, char* data, size_t dlen, size_t* readbytes);
+	int BIO_s_enet_read(BIO* b, char* data, int dlen);
+	int BIO_s_enet_gets(BIO* b, char* data, int size);
+	int BIO_s_enet_puts(BIO* b, const char* data);
+	long BIO_s_enet_ctrl(BIO* b, int cmd, long larg, void* pargs);
+	int BIO_s_enet_create(BIO* b);
+	int BIO_s_enet_destroy(BIO* b);
+
+	BIO_METHOD* BIO_s_enet(void);
+	void BIO_s_enet_meth_free(void);
 
 	typedef struct _ENetCallbacks {
 		void* (ENET_CALLBACK* malloc)(size_t size);
@@ -465,6 +493,50 @@ extern "C" {
 		uint16_t port;
 	} ENetAddress;
 
+	typedef enum _ENetSslMode {
+		ENET_SSL_MODE_NONE = 0,
+		ENET_SSL_MODE_SERVER = 1,
+		ENET_SSL_MODE_CLIENT = 2
+	} ENetSslMode;
+
+	typedef struct _ENetSslConfiguration {
+		ENetSslMode mode;
+		// Server Params
+		const char* certificatePath;
+		const char* privateKeyPath;
+		// Client Params
+		int validateCertificate;
+		const char* rootCertificatePath;
+	} ENetSslConfiguration;
+
+	typedef enum _ENetSslSocketSonnectionState {
+		ENET_SSL_SOCKET_CONNECTION_STATE_NONE,
+		ENET_SSL_SOCKET_CONNECTION_STATE_BOUND,
+		ENET_SSL_SOCKET_CONNECTION_STATE_LISTENING,
+		ENET_SSL_SOCKET_CONNECTION_STATE_ACCEPTING,
+		ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTING,
+		ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTED
+	} ENetSslSocketSonnectionState;
+
+	typedef struct _ENetSslSocket {
+		ENetSslMode mode;
+		ENetSslCtx* ctx;
+		ENetSocket socket;
+		ENetList connectionList;
+		uint8_t sendBuffer[ENET_PROTOCOL_MAXIMUM_MTU];
+	} ENetSslSocket;
+
+	typedef struct _ENetSslSocketConnection {
+		ENetListNode connectionList;
+		ENetSslSocketSonnectionState state;
+		ENetSocket socket;
+		ENetAddress address;
+		struct timeval timeout;
+		uint32_t lastReadTime;
+		ENetSsl* ssl;
+		ENetSslBio* bio;
+	} ENetSslSocketConnection;
+
 	typedef enum _ENetPacketFlag {
 		ENET_PACKET_FLAG_NONE = 0,
 		ENET_PACKET_FLAG_RELIABLE = (1 << 0),
@@ -657,7 +729,7 @@ extern "C" {
 	typedef int (ENET_CALLBACK* ENetInterceptCallback)(ENetEvent* event, ENetAddress* address, uint8_t* receivedData, int receivedDataLength);
 
 	typedef struct _ENetHost {
-		ENetSocket socket;
+		ENetSslSocket* socket;
 		ENetAddress address;
 		uint32_t incomingBandwidth;
 		uint32_t outgoingBandwidth;
@@ -728,6 +800,7 @@ extern "C" {
 	ENET_API void enet_peer_throttle_configure(ENetPeer*, uint32_t, uint32_t, uint32_t, uint32_t);
 
 	ENET_API ENetHost* enet_host_create(const ENetAddress*, size_t, size_t, uint32_t, uint32_t, int);
+	ENET_API ENetHost* enet_host_create_ssl(const ENetAddress*, size_t, size_t, uint32_t, uint32_t, int, ENetSslConfiguration*);
 	ENET_API void enet_host_destroy(ENetHost*);
 	ENET_API void enet_host_prevent_connections(ENetHost*, uint8_t);
 	ENET_API ENetPeer* enet_host_connect(ENetHost*, const ENetAddress*, size_t, uint32_t);
@@ -744,6 +817,7 @@ extern "C" {
 	ENET_API int enet_address_set_hostname(ENetAddress*, const char*);
 	ENET_API int enet_address_get_ip(const ENetAddress*, char*, size_t);
 	ENET_API int enet_address_get_hostname(const ENetAddress*, char*, size_t);
+	ENET_API int enet_address_equal(const ENetAddress* lAddress, const ENetAddress* rAddress);
 
 	ENET_API ENetSocket enet_socket_create(ENetSocketType);
 	ENET_API int enet_socket_bind(ENetSocket, const ENetAddress*);
@@ -753,6 +827,7 @@ extern "C" {
 	ENET_API int enet_socket_connect(ENetSocket, const ENetAddress*);
 	ENET_API int enet_socket_send(ENetSocket, const ENetAddress*, const ENetBuffer*, size_t);
 	ENET_API int enet_socket_receive(ENetSocket, ENetAddress*, ENetBuffer*, size_t);
+	ENET_API int enet_socket_peek_address(ENetSocket, ENetAddress*);
 	ENET_API int enet_socket_wait(ENetSocket, uint32_t*, uint64_t);
 	ENET_API int enet_socket_set_option(ENetSocket, ENetSocketOption, int);
 	ENET_API int enet_socket_get_option(ENetSocket, ENetSocketOption, int*);
@@ -760,6 +835,17 @@ extern "C" {
 	ENET_API int enet_socket_shutdown(ENetSocket, ENetSocketShutdown);
 	ENET_API void enet_socket_destroy(ENetSocket);
 	ENET_API int enet_socket_set_select(ENetSocket, ENetSocketSet*, ENetSocketSet*, uint32_t);
+
+	ENET_API ENetSslSocket* enet_ssl_socket_create(ENetSslConfiguration*);
+	ENET_API int enet_ssl_socket_bind(ENetSslSocket*, const ENetAddress*);
+	ENET_API int enet_ssl_socket_get_address(const ENetSslSocket*, ENetAddress*);
+	ENET_API int enet_ssl_socket_send(ENetSslSocket*, const ENetAddress*, const ENetBuffer*, size_t);
+	ENET_API int enet_ssl_socket_receive(ENetSslSocket*, ENetAddress*, ENetBuffer*, size_t);
+	ENET_API int enet_ssl_socket_wait(ENetSslSocket*, uint32_t*, uint64_t);
+	ENET_API int enet_ssl_socket_set_option(ENetSslSocket*, ENetSocketOption, int);
+	ENET_API int enet_ssl_socket_get_option(const ENetSslSocket*, ENetSocketOption, int*);
+	ENET_API int enet_ssl_socket_get_header_size(const ENetSslSocket*);
+	ENET_API void enet_ssl_socket_destroy(ENetSslSocket*);
 
 	/* Extended API for easier binding in other programming languages */
 	ENET_API void* enet_packet_get_data(const ENetPacket*);
@@ -1871,7 +1957,7 @@ static ENetPeer* enet_protocol_handle_connect(ENetHost* host, ENetProtocolHeader
 	}
 
 	mtu = ENET_NET_TO_HOST_32(command->connect.mtu);
-	packetHeaderSize = enet_socket_get_header_size(host->socket);
+	packetHeaderSize = enet_ssl_socket_get_header_size(host->socket);
 
 	if (mtu < ENET_PROTOCOL_MINIMUM_MTU - packetHeaderSize)
 		mtu = ENET_PROTOCOL_MINIMUM_MTU - packetHeaderSize;
@@ -2473,7 +2559,7 @@ static int enet_protocol_handle_verify_connect(ENetHost* host, ENetEvent* event,
 	peer->incomingSessionID = command->verifyConnect.incomingSessionID;
 	peer->outgoingSessionID = command->verifyConnect.outgoingSessionID;
 	mtu = ENET_NET_TO_HOST_32(command->verifyConnect.mtu);
-	packetHeaderSize = enet_socket_get_header_size(host->socket);
+	packetHeaderSize = enet_ssl_socket_get_header_size(host->socket);
 
 	if (mtu < ENET_PROTOCOL_MINIMUM_MTU - packetHeaderSize)
 		mtu = ENET_PROTOCOL_MINIMUM_MTU - packetHeaderSize;
@@ -2725,7 +2811,7 @@ static int enet_protocol_receive_incoming_commands(ENetHost* host, ENetEvent* ev
 		ENetBuffer buffer;
 		buffer.data = host->packetData[0];
 		buffer.dataLength = sizeof(host->packetData[0]);
-		receivedLength = enet_socket_receive(host->socket, &host->receivedAddress, &buffer, 1);
+		receivedLength = enet_ssl_socket_receive(host->socket, &host->receivedAddress, &buffer, 1);
 
 		if (receivedLength == -2)
 			continue;
@@ -3053,7 +3139,7 @@ static int enet_protocol_send_outgoing_commands(ENetHost* host, ENetEvent* event
 
 				// find the next higher MTU
 				testMtu = 0;
-				packetHeaderSize = enet_socket_get_header_size(host->socket);
+				packetHeaderSize = enet_ssl_socket_get_header_size(host->socket);
 				for (int i = 0; i < ENET_PROTOCOL_POTENTIAL_MTU_COUNT; i++) {
 					if (currentPeer->mtu < potentialMtus[i] - packetHeaderSize) {
 						testMtu = potentialMtus[i] - packetHeaderSize;
@@ -3108,7 +3194,7 @@ static int enet_protocol_send_outgoing_commands(ENetHost* host, ENetEvent* event
 			}
 
 			currentPeer->lastSendTime = host->serviceTime;
-			sentLength = enet_socket_send(host->socket, &currentPeer->address, host->buffers, host->bufferCount);
+			sentLength = enet_ssl_socket_send(host->socket, &currentPeer->address, host->buffers, host->bufferCount);
 
 			enet_protocol_remove_sent_unreliable_commands(currentPeer);
 
@@ -3230,7 +3316,7 @@ int enet_host_service(ENetHost* host, ENetEvent* event, uint32_t timeout) {
 
 			waitCondition = ENET_SOCKET_WAIT_RECEIVE | ENET_SOCKET_WAIT_INTERRUPT;
 
-			if (enet_socket_wait(host->socket, &waitCondition, ENET_TIME_DIFFERENCE(timeout, host->serviceTime)) != 0)
+			if (enet_ssl_socket_wait(host->socket, &waitCondition, ENET_TIME_DIFFERENCE(timeout, host->serviceTime)) != 0)
 				return -1;
 		}
 
@@ -4063,6 +4149,10 @@ notifyError:
 */
 
 ENetHost* enet_host_create(const ENetAddress* address, size_t peerCount, size_t channelLimit, uint32_t incomingBandwidth, uint32_t outgoingBandwidth, int bufferSize) {
+	return enet_host_create_ssl(address, peerCount, channelLimit, incomingBandwidth, outgoingBandwidth, bufferSize, NULL);
+}
+
+ENetHost* enet_host_create_ssl(const ENetAddress* address, size_t peerCount, size_t channelLimit, uint32_t incomingBandwidth, uint32_t outgoingBandwidth, int bufferSize, ENetSslConfiguration* sslConfiguration) {
 	ENetHost* host;
 	ENetPeer* currentPeer;
 
@@ -4093,22 +4183,22 @@ ENetHost* enet_host_create(const ENetAddress* address, size_t peerCount, size_t 
 
 	memset(host->peers, 0, peerCount * sizeof(ENetPeer));
 
-	host->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+	host->socket = enet_ssl_socket_create(sslConfiguration);
 
-	if (host->socket != ENET_SOCKET_NULL) {
-		ENET_LOG_TRACE("Socket creation: IPv4 & IPv6 dual stack mode");
-		enet_socket_set_option(host->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
+	if (host->socket != NULL) {
+		ENET_LOG_TRACE("SslSocket creation: IPv4 & IPv6 dual stack mode");
+		enet_ssl_socket_set_option(host->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
 	}
 
-	int bindResult = enet_socket_bind(host->socket, address);
-
-	if (host->socket == ENET_SOCKET_NULL || (address != NULL && bindResult < 0)) {
-		if (host->socket != ENET_SOCKET_NULL) {
-			ENET_LOG_TRACE("Socket creation: Cleaning up a old socket.");
-			enet_socket_destroy(host->socket);
+	int bindResult = -1;
+	if (host->socket == NULL || (bindResult = enet_ssl_socket_bind(host->socket, address)) < 0) {
+		if (host->socket != NULL) {
+			ENET_LOG_ERROR("SslSocket creation: Binding to socket failed with error code %i. Cleaning up old socket", bindResult);
+			enet_ssl_socket_destroy(host->socket);
 		}
-
-		ENET_LOG_ERROR("Socket creation: Binding to socket failed with error code %i", bindResult);
+		else {
+			ENET_LOG_ERROR("SslSocket creation: Failed to create socket");
+		}
 		enet_free(host->peers);
 		enet_free(host);
 
@@ -4121,15 +4211,16 @@ ENetHost* enet_host_create(const ENetAddress* address, size_t peerCount, size_t 
 	else if (bufferSize < ENET_HOST_BUFFER_SIZE_MIN)
 		bufferSize = ENET_HOST_BUFFER_SIZE_MIN;
 
-	ENET_LOG_TRACE("Socket: Setting up options");
-	enet_socket_set_option(host->socket, ENET_SOCKOPT_NONBLOCK, 1);
-	enet_socket_set_option(host->socket, ENET_SOCKOPT_BROADCAST, 1);
-	enet_socket_set_option(host->socket, ENET_SOCKOPT_RCVBUF, bufferSize);
-	enet_socket_set_option(host->socket, ENET_SOCKOPT_SNDBUF, bufferSize);
+
+	ENET_LOG_TRACE("SslSocket: Setting up options");
+	enet_ssl_socket_set_option(host->socket, ENET_SOCKOPT_NONBLOCK, 1);
+	enet_ssl_socket_set_option(host->socket, ENET_SOCKOPT_BROADCAST, 1);
+	enet_ssl_socket_set_option(host->socket, ENET_SOCKOPT_RCVBUF, bufferSize);
+	enet_ssl_socket_set_option(host->socket, ENET_SOCKOPT_SNDBUF, bufferSize);
 
 	ENET_LOG_TRACE("Address: Setting up");
-	if (address != NULL && enet_socket_get_address(host->socket, &host->address) < 0)
-		host->address = *address;
+	if (address != NULL && enet_ssl_socket_get_address(host->socket, &host->address) < 0)
+		host->address = *address;	
 
 	ENET_LOG_TRACE("Channels: Setting up");
 	if (!channelLimit || channelLimit > ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT)
@@ -4146,7 +4237,7 @@ ENetHost* enet_host_create(const ENetAddress* address, size_t peerCount, size_t 
 	host->bandwidthThrottleEpoch = 0;
 	host->recalculateBandwidthLimits = 0;
 	host->preventConnections = 0;
-	host->mtu = ENET_PROTOCOL_MINIMUM_MTU - enet_socket_get_header_size(host->socket);
+	host->mtu = ENET_PROTOCOL_MINIMUM_MTU - enet_ssl_socket_get_header_size(host->socket);
 	host->peerCount = peerCount;
 	host->commandCount = 0;
 	host->bufferCount = 0;
@@ -4195,7 +4286,7 @@ void enet_host_destroy(ENetHost* host) {
 	if (host == NULL)
 		return;
 
-	enet_socket_destroy(host->socket);
+	enet_ssl_socket_destroy(host->socket);
 
 	for (currentPeer = host->peers; currentPeer < &host->peers[host->peerCount]; ++currentPeer) {
 		enet_peer_reset(currentPeer);
@@ -4915,6 +5006,44 @@ int enet_socket_receive(ENetSocket socket, ENetAddress* address, ENetBuffer* buf
 	return recvLength;
 }
 
+int enet_socket_peek_address(ENetSocket socket, ENetAddress* address) {
+	if (address == NULL)
+		return -1;
+
+	struct msghdr msgHdr;
+	struct sockaddr_in6 sin;
+	int recvLength;
+
+	memset(&msgHdr, 0, sizeof(struct msghdr));
+
+  msgHdr.msg_name = &sin;
+	msgHdr.msg_namelen = sizeof(struct sockaddr_in6);
+	
+	int tmpData;
+	ENetBuffer tmpBuf;
+	tmpBuf.data = & tmpData;
+	tmpBuf.dataLength = sizeof(tmpData);
+
+	msgHdr.msg_iov = (struct iovec*)&tmpBuf;
+	msgHdr.msg_iovlen = 1;
+
+	recvLength = recvmsg(socket, &msgHdr, MSG_NOSIGNAL | MSG_PEEK);
+
+	if (recvLength == -1) {
+		if (errno == EWOULDBLOCK || errno == EAGAIN)
+			return 0;
+		else if (errno != EMSGSIZE) {
+			ENET_LOG_ERROR("An error occurred peeking data from the socket. recvMsg result is negative, returned code is %i.", errno);
+			return -1;
+		}
+	}
+
+	address->ipv6 = sin.sin6_addr;
+	address->port = ENET_NET_TO_HOST_16(sin.sin6_port);
+
+	return 1;
+}
+
 int enet_socket_set_select(ENetSocket maxSocket, ENetSocketSet* readSet, ENetSocketSet* writeSet, uint32_t timeout) {
 	struct timeval timeVal;
 
@@ -5031,9 +5160,10 @@ int enet_socket_get_address(ENetSocket socket, ENetAddress* address) {
 	struct sockaddr_storage ss;
 	int saLength = sizeof(ss);
 
-	if (getsockname(socket, (struct sockaddr*)&ss, &saLength) == -1)
+	if (getsockname(socket, (struct sockaddr*)&ss, &saLength) == -1) {
 		ENET_LOG_ERROR("Socket getsockname failure.");
-	return -1;
+		return -1;
+	}
 
 	if (ss.ss_family == AF_INET) {
 		struct sockaddr_in* sin = (struct sockaddr_in*)&ss;
@@ -5263,6 +5393,43 @@ int enet_socket_receive(ENetSocket socket, ENetAddress* address, ENetBuffer* buf
 	return (int)recvLength;
 }
 
+
+int enet_socket_peek_address(ENetSocket socket, ENetAddress* address) {
+
+	if (address == NULL)
+		return -1;
+
+	int lastError = 0;
+	INT sinLength = sizeof(struct sockaddr_in6);
+	DWORD flags = MSG_PEEK, recvLength = 0;
+	struct sockaddr_in6 sin;
+
+	int tmpData;
+	ENetBuffer tmpBuf;
+	tmpBuf.data = &tmpData;
+	tmpBuf.dataLength = sizeof(tmpData);
+
+	if (WSARecvFrom(socket, (LPWSABUF)&tmpBuf, (DWORD)1, &recvLength, &flags, (struct sockaddr*)&sin, &sinLength, NULL, NULL) == SOCKET_ERROR) {
+		lastError = WSAGetLastError();
+
+		switch (lastError) {
+		case WSAEWOULDBLOCK:
+		case WSAECONNRESET:
+			return 0;
+		case WSAEMSGSIZE:
+			break;
+		default:
+			ENET_LOG_ERROR("Socket receive failure, WSA return code %i", lastError);
+			return -1;
+		}
+	}
+
+	address->ipv6 = sin.sin6_addr;
+	address->port = ENET_NET_TO_HOST_16(sin.sin6_port);
+
+	return 1;
+}
+
 int enet_socket_set_select(ENetSocket maxSocket, ENetSocketSet* readSet, ENetSocketSet* writeSet, uint32_t timeout) {
 	struct timeval timeVal;
 
@@ -5311,6 +5478,742 @@ int enet_socket_wait(ENetSocket socket, uint32_t* condition, uint64_t timeout) {
 	return 0;
 }
 #endif
+
+/*
+=======================================================================
+
+  SSL Support
+
+=======================================================================
+*/
+
+#define COOKIE_SECRET_LENGTH 16
+#define ENET_SSL_SOCKET_HEADER_SIZE 13
+
+unsigned char cookie_secret[COOKIE_SECRET_LENGTH];
+int cookie_initialized = 0;
+
+int enet_generate_cookie(SSL* ssl, unsigned char* cookie, unsigned int* cookie_len) {
+	// Initialize the random secret
+	if (!cookie_initialized) {
+		if (!RAND_bytes(cookie_secret, COOKIE_SECRET_LENGTH)) {
+			ENET_LOG_ERROR("error setting random cookie secret");
+			return 0;
+		}
+		cookie_initialized = 1;
+	}
+
+	// read the incoming address
+	ENetAddress address;
+	BIO_dgram_get_peer(SSL_get_rbio(ssl), &address);
+
+	// Calculate HMAC of buffer using the secret
+	unsigned int resultLength = 0;
+	unsigned char result[EVP_MAX_MD_SIZE];
+	HMAC(EVP_sha1(),
+		(const void*)cookie_secret,
+		COOKIE_SECRET_LENGTH,
+		(const unsigned char*)&address,
+		sizeof(ENetAddress),
+		result,
+		&resultLength);
+
+	memcpy(cookie, result, resultLength);
+	*cookie_len = resultLength;
+
+	return 1;
+}
+
+int enet_verify_cookie(SSL* ssl, const unsigned char* cookie, unsigned int cookie_len) {
+	// If secret isn't initialized yet, the cookie can't be valid
+	if (!cookie_initialized)
+		return 0;
+
+	// read the incoming address
+	ENetAddress address;
+	BIO_dgram_get_peer(SSL_get_rbio(ssl), &address);
+
+	// Calculate HMAC of buffer using the secret
+	unsigned int resultLength = 0;
+	unsigned char result[EVP_MAX_MD_SIZE];
+	HMAC(EVP_sha1(),
+		(const void*)cookie_secret,
+		COOKIE_SECRET_LENGTH,
+		(const unsigned char*)&address,
+		sizeof(ENetAddress),
+		result,
+		&resultLength);
+
+	if (cookie_len == resultLength && memcmp(result, cookie, resultLength) == 0)
+		return 1;
+
+	return 0;
+}
+
+static int enet_verify_server(int preverify_ok, X509_STORE_CTX* ctx) {
+	int err = X509_STORE_CTX_get_error(ctx);
+	if (err != X509_V_OK)
+		ENET_LOG_ERROR("Verify Server Certificate failed with error %s", X509_verify_cert_error_string(err));
+	// return the result of preverfication
+	return preverify_ok;
+}
+
+static int enet_allow_all_certificates(X509_STORE_CTX* ctx, void* arg) {
+	return 1;
+};
+
+static void enet_ssl_print_error(const char* func, int sslError) {
+#ifdef ENET_DEBUG
+	const char* errorString = "unknown error";
+	switch (sslError) {
+	case SSL_ERROR_ZERO_RETURN:
+		errorString = "SSL_ERROR_ZERO_RETURN";
+		break;
+	case SSL_ERROR_WANT_READ:
+		errorString = "SSL_ERROR_WANT_READ";
+		break;
+	case SSL_ERROR_WANT_WRITE:
+		errorString = "SSL_ERROR_WANT_WRITE";
+		break;
+	case SSL_ERROR_WANT_CONNECT:
+		errorString = "SSL_ERROR_WANT_CONNECT";
+		break;
+	case SSL_ERROR_WANT_ACCEPT:
+		errorString = "SSL_ERROR_WANT_ACCEPT";
+		break;
+	case SSL_ERROR_WANT_X509_LOOKUP:
+		errorString = "SSL_ERROR_WANT_X509_LOOKUP";
+		break;
+	case SSL_ERROR_SYSCALL:
+		errorString = "SSL_ERROR_SYSCALL";
+		break;
+	case SSL_ERROR_SSL:
+		errorString = "SSL_ERROR_SSL";
+		break;
+	}
+
+	ENET_LOG_ERROR("%s resulted in %s", func, errorString);
+	ENET_LOG_ERROR("%s", ERR_error_string(ERR_get_error(), NULL));
+#endif
+}
+
+static int enet_ssl_filter_result(ENetSslSocketConnection* connection, const char* func, int result) {
+	int sslError = SSL_get_error(connection->ssl, result);
+	switch (sslError) {
+	case SSL_ERROR_NONE:
+	case SSL_ERROR_ZERO_RETURN:
+		// return result directly
+		break;
+
+	case SSL_ERROR_WANT_READ:
+		if (connection->lastReadTime + connection->timeout.tv_sec * 1000 + connection->timeout.tv_usec / 1000 < enet_time_get()) {
+			// Connection timed out, return our original result
+			ENET_LOG_ERROR("ssl connection timed out!");
+		}
+		else
+			// we are still waiting for results from the remote end, keep trying
+			result = 0;
+		break;
+
+	case SSL_ERROR_WANT_WRITE:
+		// set the result to 0 so we know to keep trying
+		result = 0;
+		break;
+
+	default:
+		enet_ssl_print_error(func, sslError);
+		break;
+	}
+	return result;
+}
+
+// Wrap SSL methods with error filtering/logging
+static int enet_ssl_connect(ENetSslSocketConnection* connection) {
+	return enet_ssl_filter_result(connection, "SSL_connect", SSL_connect(connection->ssl));
+}
+static int enet_ssl_accept(ENetSslSocketConnection* connection) {
+	return enet_ssl_filter_result(connection, "SSL_accept", SSL_accept(connection->ssl));
+}
+
+static int enet_ssl_read(ENetSslSocketConnection* connection, void* buf, int len) {
+	return enet_ssl_filter_result(connection, "SSL_read", SSL_read(connection->ssl, buf, len));
+}
+
+static int enet_ssl_write(ENetSslSocketConnection* connection, void* buf, int len) {
+	return enet_ssl_filter_result(connection, "SSL_write", SSL_write(connection->ssl, buf, len));
+}
+
+static ENetSslSocketConnection* enet_ssl_socket_connection_create(ENetSslSocket* ssl) {
+	ENetSslSocketConnection* connection = (ENetSslSocketConnection*)enet_malloc(sizeof(ENetSslSocketConnection));
+
+	connection->state = ENET_SSL_SOCKET_CONNECTION_STATE_NONE;
+	connection->socket = ssl->socket;
+
+	// initialize our bio for our socket
+	connection->bio = BIO_new(BIO_s_enet());
+	BIO_set_data(connection->bio, connection);
+	BIO_set_init(connection->bio, 1);
+
+	// initialize the ssl for our connection
+	connection->ssl = SSL_new(ssl->ctx);
+	// set the bio for our ssl
+	SSL_set_bio(connection->ssl, connection->bio, connection->bio);
+
+	// set connection timeout to 5 seconds
+	connection->timeout.tv_sec = 5;
+	connection->timeout.tv_usec = 0;
+	connection->lastReadTime = enet_time_get();
+	memset(&connection->address, 0, sizeof(ENetAddress));
+
+	enet_list_insert(enet_list_end(&ssl->connectionList), connection);
+
+	return connection;
+}
+
+static ENetSslSocketConnection* enet_ssl_socket_connection_create_listener(ENetSslSocket* ssl) {
+	ENetSslSocketConnection* connection = enet_ssl_socket_connection_create(ssl);
+
+	// set the ssl to use cookie exchange to prevent DoS attacks
+	SSL_set_options(connection->ssl, SSL_OP_COOKIE_EXCHANGE);
+
+	// mark the connection as listening
+	connection->state = ENET_SSL_SOCKET_CONNECTION_STATE_LISTENING;
+
+	return connection;
+}
+
+static int enet_ssl_socket_connection_accept(ENetSslSocketConnection* connection, const ENetAddress* address) {
+	if (connection->state != ENET_SSL_SOCKET_CONNECTION_STATE_LISTENING)
+		// we can only accept if we are listening
+		return -1;
+
+	// set our address to prepare to listen
+	connection->address = *address;
+
+	ENetAddress tmpAddress;
+	if (DTLSv1_listen(connection->ssl, (BIO_ADDR*)&tmpAddress) <= 0)
+		return 0;
+
+	// verify our listen address matches the passed in address
+	if (!enet_address_equal(address, &tmpAddress))
+		return -1;
+
+	// set the last read time for our manual timeout
+	connection->lastReadTime = enet_time_get();
+
+	// transition our state to accepting
+	connection->state = ENET_SSL_SOCKET_CONNECTION_STATE_ACCEPTING;
+
+	return 1;
+}
+
+static ENetSslSocketConnection* enet_ssl_socket_connection_create_connect(ENetSslSocket* ssl, const ENetAddress* address) {
+	ENetSslSocketConnection* connection = enet_ssl_socket_connection_create(ssl);
+
+	// set the address for this connection
+	connection->address = *address;
+
+	// set the last read time for our manual timeout
+	connection->lastReadTime = enet_time_get();
+
+	// transition our state to connecting
+	connection->state = ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTING;
+
+	return connection;
+}
+
+static int enet_ssl_socket_connection_update_connection_state(ENetSslSocketConnection* connection) {
+	// If this connection is connecting or accepting, try to update the state.
+	// Otherwise return 0.
+	int result;
+	switch (connection->state) {
+	case ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTING:
+		result = enet_ssl_connect(connection);
+		break;
+
+	case ENET_SSL_SOCKET_CONNECTION_STATE_ACCEPTING:
+		result = enet_ssl_accept(connection);
+		break;
+
+	default:
+		result = 0;
+		break;
+	}
+
+	if (result <= 0)
+		return result;
+
+	// Connected successfully!
+	connection->state = ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTED;
+
+	// mark the last read time for our manual timeout
+	connection->lastReadTime = enet_time_get();
+
+	return result;
+}
+
+static void enet_ssl_socket_connection_destroy(ENetSslSocketConnection* connection) {
+	SSL_free(connection->ssl);
+
+	enet_list_remove(&connection->connectionList);
+	enet_free(connection);
+}
+
+int BIO_s_enet_write_ex(BIO* b, const char* data, size_t dlen, size_t* written) {
+	ENetSslSocketConnection* connection = (ENetSslSocketConnection*)BIO_get_data(b);
+	ENetBuffer buffer;
+	buffer.data = (void*)data;
+	buffer.dataLength = dlen;
+
+	BIO_clear_retry_flags(b);
+	int result = enet_socket_send(connection->socket, &connection->address, &buffer, 1);
+	if (result < 0)
+		return 0;
+
+	if (written)
+		*written = result;
+	return 1;
+}
+
+int BIO_s_enet_write(BIO* b, const char* data, int dlen) {
+	size_t written;
+	if (BIO_s_enet_write_ex(b, data, dlen, &written))
+		return (int)written;
+	return -1;
+}
+
+int BIO_s_enet_read_ex(BIO* b, char* data, size_t dlen, size_t* readbytes) {
+	ENetSslSocketConnection* connection = (ENetSslSocketConnection*)BIO_get_data(b);
+	ENetBuffer buffer;
+	buffer.data = data;
+	buffer.dataLength = dlen;
+	ENetAddress address;
+
+	BIO_clear_retry_flags(b);
+	int peek = enet_socket_peek_address(connection->socket, &address);
+	if (peek < 0)
+		return 0;
+
+	// tried to read data but the latest incoming was for a different connection.
+	// return success with 0 bytes read
+	if (peek == 0 || !enet_address_equal(&address, &connection->address)) {
+		BIO_set_retry_read(b);
+		if (readbytes)
+			*readbytes = 0;
+		return 1;
+	}
+
+	int result = enet_socket_receive(connection->socket, &address, &buffer, 1);
+	if (result < 0)
+		return 0;
+	if (readbytes)
+		*readbytes = result;
+	return 1;
+}
+
+int BIO_s_enet_read(BIO* b, char* data, int dlen) {
+	size_t bytesread;
+	if (BIO_s_enet_read_ex(b, data, dlen, &bytesread))
+		return (int)bytesread;
+	return -1;
+}
+
+long BIO_s_enet_ctrl(BIO* b, int cmd, long larg, void* pargs) {
+	long ret = 0;
+
+	ENetSslSocketConnection* connection = (ENetSslSocketConnection*)BIO_get_data(b);
+	switch (cmd) {
+	case BIO_CTRL_FLUSH:
+		ret = 1;
+		break;
+	case BIO_CTRL_DGRAM_SET_CONNECTED:
+	case BIO_CTRL_DGRAM_SET_PEER:
+		if (pargs != NULL)
+			connection->address = *(ENetAddress*)pargs;
+		else {
+			connection->address.ipv6 = ENET_HOST_ANY;
+			connection->address.port = 0;
+		}
+		ret = 0;
+		break;
+	case BIO_CTRL_DGRAM_GET_PEER:
+		if (pargs == NULL)
+			ret = 0;
+		else {
+			*(ENetAddress*)pargs = connection->address;
+			ret = 1;
+		}
+		break;
+	case BIO_CTRL_WPENDING:
+		ret = 0;
+		break;
+	case BIO_CTRL_DGRAM_QUERY_MTU:
+		ret = ENET_PROTOCOL_MAXIMUM_MTU;
+		break;
+	case BIO_CTRL_DGRAM_GET_FALLBACK_MTU:
+		ret = ENET_PROTOCOL_MINIMUM_MTU;
+		break;
+	case BIO_CTRL_DGRAM_GET_MTU_OVERHEAD:
+		ret = 48; // 40 bytes for IP, 8 for UDP
+		break;
+	case BIO_CTRL_EOF:
+	case BIO_CTRL_PUSH:
+	case BIO_CTRL_POP:
+		ret = 0;
+		break;
+	case BIO_CTRL_DGRAM_SET_NEXT_TIMEOUT:
+		ret = 0;
+		break;
+	case BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP:
+		ret = 0;
+		break;
+	case BIO_CTRL_DGRAM_GET_SEND_TIMER_EXP:
+		ret = 0;
+		break;
+	default:
+		ENET_LOG_ERROR("BIO_s_enet_ctrl(BIO[%p], cmd[%d], larg[%ld], pargs[%p])", b, cmd, larg, pargs);
+		ENET_LOG_ERROR("  unknown cmd: %d", cmd);
+		ret = 0;
+		break;
+	}
+
+	return ret;
+}
+
+int BIO_s_enet_create(BIO* b) {
+	ENET_LOG_TRACE("BIO_s_enet_create(BIO[%p])", b);
+	return 1;
+}
+
+int BIO_s_enet_destroy(BIO* b) {
+	ENET_LOG_TRACE("BIO_s_enet_destroy(BIO[%p])", b);
+	return 1;
+}
+
+BIO_METHOD* _BIO_s_enet = NULL;
+BIO_METHOD* BIO_s_enet(void) {
+	if (_BIO_s_enet)
+		return _BIO_s_enet;
+
+	_BIO_s_enet = BIO_meth_new(BIO_get_new_index() | BIO_TYPE_SOURCE_SINK, "BIO_s_enet");
+
+	BIO_meth_set_write_ex(_BIO_s_enet, BIO_s_enet_write_ex);
+	BIO_meth_set_write(_BIO_s_enet, BIO_s_enet_write);
+	BIO_meth_set_read_ex(_BIO_s_enet, BIO_s_enet_read_ex);
+	BIO_meth_set_read(_BIO_s_enet, BIO_s_enet_read);
+	BIO_meth_set_ctrl(_BIO_s_enet, BIO_s_enet_ctrl);
+	BIO_meth_set_create(_BIO_s_enet, BIO_s_enet_create);
+	BIO_meth_set_destroy(_BIO_s_enet, BIO_s_enet_destroy);
+
+	return _BIO_s_enet;
+}
+
+void BIO_s_enet_meth_free(void) {
+	if (_BIO_s_enet)
+		BIO_meth_free(_BIO_s_enet);
+
+	_BIO_s_enet = NULL;
+}
+
+ENetSslSocket* enet_ssl_socket_create(ENetSslConfiguration* sslConfiguration) {
+	ENetSslSocket* ssl = (ENetSslSocket*)enet_malloc(sizeof(ENetSslSocket));
+
+	ssl->mode = sslConfiguration == NULL ? ENET_SSL_MODE_NONE : sslConfiguration->mode;
+	ssl->ctx = NULL;
+	enet_list_clear(&ssl->connectionList);
+
+	ssl->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+	if (ssl->socket == ENET_SOCKET_NULL) {
+		enet_ssl_socket_destroy(ssl);
+		return NULL;
+	}
+
+	if (ssl->mode == ENET_SSL_MODE_NONE)
+		return ssl;
+
+	ssl->ctx = SSL_CTX_new(ssl->mode == ENET_SSL_MODE_SERVER ? DTLS_server_method() : DTLS_client_method());
+
+	SSL_CTX_set_cipher_list(ssl->ctx, "DEFAULT");
+	SSL_CTX_set_session_cache_mode(ssl->ctx, SSL_SESS_CACHE_OFF);
+
+	if (ssl->mode == ENET_SSL_MODE_SERVER) {
+		if (sslConfiguration->certificatePath == NULL || !SSL_CTX_use_certificate_chain_file(ssl->ctx, sslConfiguration->certificatePath)) {
+			ENET_LOG_ERROR("ERROR: no certificate found! Path %s", sslConfiguration->certificatePath == NULL ? "NULL" : sslConfiguration->certificatePath);
+			ENET_LOG_ERROR("%s", ERR_error_string(ERR_get_error(), NULL));
+			enet_ssl_socket_destroy(ssl);
+			return NULL;
+		}
+
+		if (sslConfiguration->privateKeyPath == NULL || !SSL_CTX_use_PrivateKey_file(ssl->ctx, sslConfiguration->privateKeyPath, SSL_FILETYPE_PEM)) {
+			ENET_LOG_ERROR("ERROR: no private key found! Path %s", sslConfiguration->privateKeyPath == NULL ? "NULL" : sslConfiguration->privateKeyPath);
+			ENET_LOG_ERROR("%s", ERR_error_string(ERR_get_error(), NULL));
+			enet_ssl_socket_destroy(ssl);
+			return NULL;
+		}
+
+		if (!SSL_CTX_check_private_key(ssl->ctx)) {
+			ENET_LOG_ERROR("ERROR: invalid private key!");
+			enet_ssl_socket_destroy(ssl);
+			return NULL;
+		}
+		SSL_CTX_set_cookie_generate_cb(ssl->ctx, &enet_generate_cookie);
+		SSL_CTX_set_cookie_verify_cb(ssl->ctx, &enet_verify_cookie);
+		SSL_CTX_set_verify(ssl->ctx, SSL_VERIFY_NONE, NULL);
+	}
+	else {
+		SSL_CTX_set_verify(ssl->ctx, SSL_VERIFY_PEER, enet_verify_server);
+		SSL_CTX_set_default_verify_paths(ssl->ctx);
+		if (sslConfiguration->rootCertificatePath != NULL) {
+			SSL_CTX_load_verify_locations(ssl->ctx, sslConfiguration->rootCertificatePath, NULL);
+		}
+		if (sslConfiguration->validateCertificate == 0) {
+			SSL_CTX_set_cert_verify_callback(ssl->ctx, enet_allow_all_certificates, NULL);
+		}
+	}
+
+	SSL_CTX_set_verify_depth(ssl->ctx, 3);
+	SSL_CTX_set_read_ahead(ssl->ctx, 1);
+
+	return ssl;
+}
+
+int enet_address_equal(const ENetAddress* lAddress, const ENetAddress* rAddress) {
+	if (lAddress == NULL && rAddress == NULL)
+		return 1;
+
+	if (lAddress == NULL || rAddress == NULL)
+		return 0;
+
+	return enet_in6_equal(lAddress->ipv6, rAddress->ipv6) && lAddress->port == rAddress->port;
+}
+
+int enet_ssl_socket_get_address(const ENetSslSocket* ssl, ENetAddress* address) {
+	return enet_socket_get_address(ssl->socket, address);
+}
+
+int enet_ssl_socket_bind(ENetSslSocket* ssl, const ENetAddress* address) {
+	return enet_socket_bind(ssl->socket, address);
+}
+
+int enet_ssl_socket_receive(ENetSslSocket* ssl, ENetAddress* address, ENetBuffer* buffer, size_t bufferCount) {
+	if (ssl->mode == ENET_SSL_MODE_NONE)
+		// if ssl is disabled, pass through to the socket
+		return enet_socket_receive(ssl->socket, address, buffer, bufferCount);
+
+	int result = 0;
+	while (result == 0) {
+		int peek = enet_socket_peek_address(ssl->socket, address);
+		if (peek <= 0)
+			return peek;
+
+		// verify we have a connection to send to
+		ENetSslSocketConnection* connection = NULL;
+		ENetSslSocketConnection* listenerConnection = NULL;
+
+		for (ENetListIterator currentConnection = enet_list_begin(&ssl->connectionList);
+			currentConnection != enet_list_end(&ssl->connectionList);
+			currentConnection = enet_list_next(currentConnection)) {
+			ENetSslSocketConnection* con = (ENetSslSocketConnection*)currentConnection;
+			if (con->state != ENET_SSL_SOCKET_CONNECTION_STATE_NONE &&
+				con->state != ENET_SSL_SOCKET_CONNECTION_STATE_LISTENING &&
+				enet_address_equal(&con->address, address)) {
+				connection = con;
+				break;
+			}
+
+			if (con->state == ENET_SSL_SOCKET_CONNECTION_STATE_LISTENING)
+				listenerConnection = con;
+		}
+
+		if (connection == NULL && ssl->mode == ENET_SSL_MODE_SERVER) {
+			if (listenerConnection == NULL)
+				// start listening now
+				listenerConnection = enet_ssl_socket_connection_create_listener(ssl);
+			connection = listenerConnection;
+		}
+
+		if (connection == NULL) {
+			// read the data from the socket, then discard (it's not encrypted)
+			enet_socket_receive(ssl->socket, address, buffer, bufferCount);
+			continue;
+		}
+
+		if (connection->state == ENET_SSL_SOCKET_CONNECTION_STATE_LISTENING) {
+			if (enet_ssl_socket_connection_accept(connection, address) > 0)
+				// create a new connection to server as the listener for new connections
+				listenerConnection = enet_ssl_socket_connection_create_listener(ssl);
+		}
+
+		if (enet_ssl_socket_connection_update_connection_state(connection) < 0) {
+			enet_ssl_socket_connection_destroy(connection);
+			continue;
+		}
+
+		if (connection->state != ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTED)
+			continue;
+
+		if (SSL_get_shutdown(connection->ssl) & SSL_RECEIVED_SHUTDOWN) {
+			SSL_shutdown(connection->ssl);
+			enet_ssl_socket_connection_destroy(connection);
+			continue;
+		}
+
+		result = enet_ssl_read(connection, buffer->data, (int)buffer->dataLength);
+		if (result > 0)
+			connection->lastReadTime = enet_time_get();
+
+		if (result < 0)
+			enet_ssl_socket_connection_destroy(connection);
+	}
+
+	return result;
+}
+
+static int enet_ssl_merge_buffers(ENetSslSocket* ssl, const ENetBuffer* buffer, const size_t bufferCount, ENetBuffer* result) {
+	if (result == NULL)
+		return -1;
+
+	if (bufferCount == 1) {
+		// if there is only one buffer, no need to merge, just use it as is
+		result->data = buffer->data;
+		result->dataLength = buffer->dataLength;
+		return 0;
+	}
+
+	result->data = ssl->sendBuffer;
+	result->dataLength = 0;
+
+	// copy data to send buffer
+	for (int i = 0; i < bufferCount; i++) {
+		if (result->dataLength + buffer[i].dataLength > sizeof(ssl->sendBuffer))
+			// trying to send too much data!
+			return -1;
+
+		memcpy(ssl->sendBuffer + result->dataLength, buffer[i].data, buffer[i].dataLength);
+		result->dataLength += buffer[i].dataLength;
+	}
+
+	return 0;
+}
+
+int enet_ssl_socket_send(ENetSslSocket* ssl, const ENetAddress* address, const ENetBuffer* buffer, size_t bufferCount) {
+	if (ssl->mode == ENET_SSL_MODE_NONE)
+		// if ssl is disabled, pass through to the socket
+		return enet_socket_send(ssl->socket, address, buffer, bufferCount);
+
+	// verify we have a connection to send to
+	ENetSslSocketConnection* connection = NULL;
+	for (ENetListIterator currentConnection = enet_list_begin(&ssl->connectionList);
+		currentConnection != enet_list_end(&ssl->connectionList);
+		currentConnection = enet_list_next(currentConnection)) {
+		ENetSslSocketConnection* con = (ENetSslSocketConnection*)currentConnection;
+		if (con->state != ENET_SSL_SOCKET_CONNECTION_STATE_NONE &&
+			con->state != ENET_SSL_SOCKET_CONNECTION_STATE_LISTENING &&
+			enet_address_equal(&con->address, address)) {
+			connection = con;
+			break;
+		}
+	}
+
+	if (ssl->mode == ENET_SSL_MODE_CLIENT && connection == NULL)
+		connection = enet_ssl_socket_connection_create_connect(ssl, address);
+
+	if (connection == NULL)
+		return 0;
+
+	if (enet_ssl_socket_connection_update_connection_state(connection) < 0) {
+		enet_ssl_socket_connection_destroy(connection);
+		return -1;
+	}
+
+	if (connection->state != ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTED)
+		return 0;
+
+	if (SSL_get_shutdown(connection->ssl) & SSL_RECEIVED_SHUTDOWN) {
+		SSL_shutdown(connection->ssl);
+		enet_ssl_socket_connection_destroy(connection);
+		return 0;
+	}
+
+	ENetBuffer sendBuffer;
+	if (enet_ssl_merge_buffers(ssl, buffer, bufferCount, &sendBuffer) < 0)
+		return -1;
+
+	int result = enet_ssl_write(connection, sendBuffer.data, (int)sendBuffer.dataLength);
+
+	if (result < 0)
+		enet_ssl_socket_connection_destroy(connection);
+
+	return result;
+}
+
+int enet_ssl_socket_wait(ENetSslSocket* ssl, uint32_t* condition, uint64_t timeout) {
+	// this is a good place to clean up timed out/closed ssl sockets
+	for (ENetListIterator currentConnection = enet_list_begin(&ssl->connectionList);
+		currentConnection != enet_list_end(&ssl->connectionList);
+		currentConnection = enet_list_next(currentConnection)) {
+		ENetSslSocketConnection* connection = (ENetSslSocketConnection*)currentConnection;
+
+		if (connection->state == ENET_SSL_SOCKET_CONNECTION_STATE_LISTENING)
+			// listener always valid
+			continue;
+
+		if (enet_ssl_socket_connection_update_connection_state(connection) < 0) {
+			currentConnection = enet_list_previous(currentConnection);
+			enet_ssl_socket_connection_destroy(connection);
+			continue;
+		}
+
+		if (connection->state == ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTED) {
+			if (SSL_get_shutdown(connection->ssl) & SSL_RECEIVED_SHUTDOWN) {
+				SSL_shutdown(connection->ssl);
+				currentConnection = enet_list_previous(currentConnection);
+				enet_ssl_socket_connection_destroy(connection);
+				continue;
+			}
+		}
+
+		if (connection->lastReadTime + connection->timeout.tv_sec * 1000 + connection->timeout.tv_usec / 1000 < enet_time_get()) {
+			currentConnection = enet_list_previous(currentConnection);
+			enet_ssl_socket_connection_destroy(connection);
+		}
+	}
+
+	return enet_socket_wait(ssl->socket, condition, timeout);
+}
+
+int enet_ssl_socket_set_option(ENetSslSocket* ssl, ENetSocketOption socketOption, int value) {
+	return enet_socket_set_option(ssl->socket, socketOption, value);
+}
+
+int enet_ssl_socket_get_option(const ENetSslSocket* ssl, ENetSocketOption socketOption, int* value) {
+	return enet_socket_get_option(ssl->socket, socketOption, value);
+}
+
+int enet_ssl_socket_get_header_size(const ENetSslSocket* ssl) {
+	return enet_socket_get_header_size(ssl->socket)
+		+ (ssl->mode == ENET_SSL_MODE_NONE ? 0 : ENET_SSL_SOCKET_HEADER_SIZE);
+}
+
+void enet_ssl_socket_destroy(ENetSslSocket* ssl) {
+	if (ssl == NULL)
+		return;
+
+	// clean up all of our connections
+	while (enet_list_begin(&ssl->connectionList) != enet_list_end(&ssl->connectionList))
+		enet_ssl_socket_connection_destroy(enet_list_front(&ssl->connectionList));
+
+	// destroy our ctx
+	if (ssl->ctx != NULL)
+		SSL_CTX_free(ssl->ctx);
+
+	// close our socket
+	if (ssl->socket != ENET_SOCKET_NULL)
+		enet_socket_destroy(ssl->socket);
+
+	// release the memory
+	enet_free(ssl);
+}
 
 /*
 =======================================================================
