@@ -147,6 +147,10 @@ typedef struct {
 #define ENET_API extern
 #endif
 
+#define ENET_SOCKET_DGRAM_HEADER_SIZE 8
+#define ENET_SOCKET_STREAM_HEADER_SIZE 20
+#define ENET_SOCKET_INET_HEADER_SIZE 60
+
 #ifndef ENET_BUFFER_MAXIMUM
 #define ENET_BUFFER_MAXIMUM (1 + 2 * ENET_PROTOCOL_MAXIMUM_PACKET_COMMANDS)
 #endif
@@ -231,6 +235,7 @@ extern "C" {
 	enum {
 		ENET_PROTOCOL_MINIMUM_MTU = 576,
 		ENET_PROTOCOL_MAXIMUM_MTU = 4096,
+		ENET_PROTOCOL_POTENTIAL_MTU_COUNT = 5,
 		ENET_PROTOCOL_MAXIMUM_PACKET_COMMANDS = 32,
 		ENET_PROTOCOL_MINIMUM_WINDOW_SIZE = 4096,
 		ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE = 65536,
@@ -254,7 +259,9 @@ extern "C" {
 		ENET_PROTOCOL_COMMAND_BANDWIDTH_LIMIT = 10,
 		ENET_PROTOCOL_COMMAND_THROTTLE_CONFIGURE = 11,
 		ENET_PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT = 12,
-		ENET_PROTOCOL_COMMAND_COUNT = 13,
+		ENET_PROTOCOL_COMMAND_TEST_MTU = 13,
+		ENET_PROTOCOL_COMMAND_VERIFY_MTU = 14,
+		ENET_PROTOCOL_COMMAND_COUNT = 15,
 		ENET_PROTOCOL_COMMAND_MASK = 0x0F
 	} ENetProtocolCommand;
 
@@ -375,6 +382,17 @@ extern "C" {
 		uint32_t fragmentOffset;
 	} ENET_PACKED ENetProtocolSendFragment;
 
+
+	typedef struct _ENetProtocolTestMtu {
+		ENetProtocolCommandHeader header;
+		uint32_t mtu;
+	} ENET_PACKED ENetProtocolTestMtu;
+
+	typedef struct _ENetProtocolVerifyMtu {
+		ENetProtocolCommandHeader header;
+		uint32_t mtu;
+	} ENET_PACKED ENetProtocolVerifyMtu;
+
 	typedef union _ENetProtocol {
 		ENetProtocolCommandHeader header;
 		ENetProtocolAcknowledge acknowledge;
@@ -388,6 +406,8 @@ extern "C" {
 		ENetProtocolSendFragment sendFragment;
 		ENetProtocolBandwidthLimit bandwidthLimit;
 		ENetProtocolThrottleConfigure throttleConfigure;
+		ENetProtocolTestMtu testMtu;
+		ENetProtocolVerifyMtu verifyMtu;
 	} ENET_PACKED ENetProtocol;
 
 #ifdef _MSC_VER
@@ -515,7 +535,6 @@ extern "C" {
 		ENET_HOST_BUFFER_SIZE_MIN = 256 * 1024,
 		ENET_HOST_BUFFER_SIZE_MAX = 1024 * 1024,
 		ENET_HOST_BANDWIDTH_THROTTLE_INTERVAL = 1000,
-		ENET_HOST_DEFAULT_MTU = 1280,
 		ENET_HOST_DEFAULT_MAXIMUM_PACKET_SIZE = 32 * 1024 * 1024,
 		ENET_HOST_DEFAULT_MAXIMUM_WAITING_DATA = 32 * 1024 * 1024,
 		ENET_PEER_DEFAULT_ROUND_TRIP_TIME = 1,
@@ -531,6 +550,8 @@ extern "C" {
 		ENET_PEER_TIMEOUT_MINIMUM = 5000,
 		ENET_PEER_TIMEOUT_MAXIMUM = 30000,
 		ENET_PEER_PING_INTERVAL = 250,
+		ENET_PEER_TEST_MTU_INTERVAL = 250,
+		ENET_PEER_MAXIUMUM_MTU_TEST_COUNT = 4,
 		ENET_PEER_UNSEQUENCED_WINDOWS = 64,
 		ENET_PEER_UNSEQUENCED_WINDOW_SIZE = 1024,
 		ENET_PEER_FREE_UNSEQUENCED_WINDOWS = 32,
@@ -596,6 +617,9 @@ extern "C" {
 		uint32_t roundTripTime;
 		uint32_t roundTripTimeVariance;
 		uint32_t mtu;
+		uint32_t lastMtuTestTime;
+		uint32_t mtuTestInterval;
+		uint32_t mtuTestCount;
 		uint32_t windowSize;
 		uint32_t reliableDataInTransit;
 		uint16_t outgoingReliableSequenceNumber;
@@ -696,6 +720,7 @@ extern "C" {
 	ENET_API void enet_peer_ping(ENetPeer*);
 	ENET_API void enet_peer_ping_interval(ENetPeer*, uint32_t);
 	ENET_API void enet_peer_timeout(ENetPeer*, uint32_t, uint32_t, uint32_t);
+	ENET_API void enet_peer_test_mtu(ENetPeer*, uint32_t);
 	ENET_API void enet_peer_reset(ENetPeer*);
 	ENET_API void enet_peer_disconnect(ENetPeer*, uint32_t);
 	ENET_API void enet_peer_disconnect_now(ENetPeer*, uint32_t);
@@ -731,6 +756,7 @@ extern "C" {
 	ENET_API int enet_socket_wait(ENetSocket, uint32_t*, uint64_t);
 	ENET_API int enet_socket_set_option(ENetSocket, ENetSocketOption, int);
 	ENET_API int enet_socket_get_option(ENetSocket, ENetSocketOption, int*);
+	ENET_API int enet_socket_get_header_size(ENetSocket);
 	ENET_API int enet_socket_shutdown(ENetSocket, ENetSocketShutdown);
 	ENET_API void enet_socket_destroy(ENetSocket);
 	ENET_API int enet_socket_set_select(ENetSocket, ENetSocketSet*, ENetSocketSet*, uint32_t);
@@ -793,6 +819,7 @@ extern "C" {
 	extern void enet_peer_on_disconnect(ENetPeer*);
 
 	extern size_t enet_protocol_command_size(uint8_t);
+	extern uint32_t enet_protocol_potential_mtu(uint8_t);
 
 #ifdef __cplusplus
 }
@@ -1506,11 +1533,27 @@ static size_t commandSizes[ENET_PROTOCOL_COMMAND_COUNT] = {
 	sizeof(ENetProtocolSendUnsequenced),
 	sizeof(ENetProtocolBandwidthLimit),
 	sizeof(ENetProtocolThrottleConfigure),
-	sizeof(ENetProtocolSendFragment)
+	sizeof(ENetProtocolSendFragment),
+	sizeof(ENetProtocolTestMtu),
+	sizeof(ENetProtocolVerifyMtu),
 };
 
 size_t enet_protocol_command_size(uint8_t commandNumber) {
 	return commandSizes[commandNumber & ENET_PROTOCOL_COMMAND_MASK];
+}
+
+
+static const uint32_t potentialMtus[ENET_PROTOCOL_POTENTIAL_MTU_COUNT] = {
+		ENET_PROTOCOL_MINIMUM_MTU,
+		1232,
+		1328,
+		1460,
+		1500
+};
+
+uint32_t
+enet_protocol_potential_mtu(uint8_t mtuIndex) {
+	return potentialMtus[mtuIndex];
 }
 
 static void enet_protocol_change_state(ENetHost* host, ENetPeer* peer, ENetPeerState state) {
@@ -1753,7 +1796,7 @@ static ENetProtocolCommand enet_protocol_remove_sent_reliable_command(ENetPeer* 
 
 static ENetPeer* enet_protocol_handle_connect(ENetHost* host, ENetProtocolHeader* header, ENetProtocol* command) {
 	uint8_t incomingSessionID, outgoingSessionID;
-	uint32_t mtu, windowSize;
+	uint32_t mtu, windowSize, packetHeaderSize;
 	ENetChannel* channel;
 	size_t channelCount, duplicatePeers = 0;
 	ENetPeer* currentPeer, * peer = NULL;
@@ -1828,9 +1871,10 @@ static ENetPeer* enet_protocol_handle_connect(ENetHost* host, ENetProtocolHeader
 	}
 
 	mtu = ENET_NET_TO_HOST_32(command->connect.mtu);
+	packetHeaderSize = enet_socket_get_header_size(host->socket);
 
-	if (mtu < ENET_PROTOCOL_MINIMUM_MTU)
-		mtu = ENET_PROTOCOL_MINIMUM_MTU;
+	if (mtu < ENET_PROTOCOL_MINIMUM_MTU - packetHeaderSize)
+		mtu = ENET_PROTOCOL_MINIMUM_MTU - packetHeaderSize;
 	else if (mtu > ENET_PROTOCOL_MAXIMUM_MTU)
 		mtu = ENET_PROTOCOL_MAXIMUM_MTU;
 
@@ -2228,6 +2272,49 @@ static int enet_protocol_handle_throttle_configure(ENetHost* host, ENetPeer* pee
 	return 0;
 }
 
+
+
+static int enet_protocol_handle_test_mtu(ENetHost* host, ENetPeer* peer, const ENetProtocol* command, uint8_t** currentData) {
+	uint32_t mtu, compareMtu;
+	ENetProtocol verifyCommand;
+
+	if (peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER)
+		return -1;
+
+	mtu = ENET_NET_TO_HOST_32(command->testMtu.mtu);
+
+	*currentData = &host->receivedData[mtu];
+	if (mtu > host->maximumPacketSize ||
+		*currentData < host->receivedData ||
+		*currentData > &host->receivedData[host->receivedDataLength])
+		return -1;
+
+	compareMtu = ENET_NET_TO_HOST_32(*(uint32_t*)(*currentData - 4));
+
+	if (mtu == compareMtu) {
+		// MTU transmission succeeded. Send verify response.
+		verifyCommand.header.command = ENET_PROTOCOL_COMMAND_VERIFY_MTU | ENET_PROTOCOL_COMMAND_FLAG_ACKNOWLEDGE;
+		verifyCommand.header.channelID = 0xFF;
+		verifyCommand.verifyMtu.mtu = ENET_HOST_TO_NET_32(mtu);
+
+		enet_peer_queue_outgoing_command(peer, &verifyCommand, NULL, 0, 0);
+	}
+
+	return 0;
+}
+
+static int enet_protocol_handle_verify_mtu(ENetHost* host, ENetPeer* peer, const ENetProtocol* command) {
+	if (peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER)
+		return -1;
+
+	if (peer->mtu < ENET_NET_TO_HOST_32(command->verifyMtu.mtu)) {
+		peer->mtu = ENET_NET_TO_HOST_32(command->verifyMtu.mtu);
+		peer->mtuTestCount = 0;
+	}
+
+	return 0;
+}
+
 static int enet_protocol_handle_disconnect(ENetHost* host, ENetPeer* peer, const ENetProtocol* command) {
 	if (peer->state == ENET_PEER_STATE_DISCONNECTED || peer->state == ENET_PEER_STATE_ZOMBIE || peer->state == ENET_PEER_STATE_ACKNOWLEDGING_DISCONNECT)
 		return 0;
@@ -2361,7 +2448,7 @@ static int enet_protocol_handle_acknowledge(ENetHost* host, ENetEvent* event, EN
 }
 
 static int enet_protocol_handle_verify_connect(ENetHost* host, ENetEvent* event, ENetPeer* peer, const ENetProtocol* command) {
-	uint32_t mtu, windowSize;
+	uint32_t mtu, windowSize, packetHeaderSize;
 	size_t channelCount;
 
 	if (peer->state != ENET_PEER_STATE_CONNECTING)
@@ -2386,9 +2473,10 @@ static int enet_protocol_handle_verify_connect(ENetHost* host, ENetEvent* event,
 	peer->incomingSessionID = command->verifyConnect.incomingSessionID;
 	peer->outgoingSessionID = command->verifyConnect.outgoingSessionID;
 	mtu = ENET_NET_TO_HOST_32(command->verifyConnect.mtu);
+	packetHeaderSize = enet_socket_get_header_size(host->socket);
 
-	if (mtu < ENET_PROTOCOL_MINIMUM_MTU)
-		mtu = ENET_PROTOCOL_MINIMUM_MTU;
+	if (mtu < ENET_PROTOCOL_MINIMUM_MTU - packetHeaderSize)
+		mtu = ENET_PROTOCOL_MINIMUM_MTU - packetHeaderSize;
 	else if (mtu > ENET_PROTOCOL_MAXIMUM_MTU)
 		mtu = ENET_PROTOCOL_MAXIMUM_MTU;
 
@@ -2575,6 +2663,19 @@ static int enet_protocol_handle_incoming_commands(ENetHost* host, ENetEvent* eve
 
 			break;
 
+
+		case ENET_PROTOCOL_COMMAND_TEST_MTU:
+			if (enet_protocol_handle_test_mtu(host, peer, command, &currentData))
+				goto commandError;
+
+			break;
+
+		case ENET_PROTOCOL_COMMAND_VERIFY_MTU:
+			if (enet_protocol_handle_verify_mtu(host, peer, command))
+				goto commandError;
+
+			break;
+
 		default:
 			goto commandError;
 		}
@@ -2623,7 +2724,7 @@ static int enet_protocol_receive_incoming_commands(ENetHost* host, ENetEvent* ev
 		int receivedLength;
 		ENetBuffer buffer;
 		buffer.data = host->packetData[0];
-		buffer.dataLength = host->mtu;
+		buffer.dataLength = sizeof(host->packetData[0]);
 		receivedLength = enet_socket_receive(host->socket, &host->receivedAddress, &buffer, 1);
 
 		if (receivedLength == -2)
@@ -2805,7 +2906,7 @@ static int enet_protocol_check_outgoing_commands(ENetHost* host, ENetPeer* peer)
 
 		commandSize = commandSizes[outgoingCommand->command.header.command & ENET_PROTOCOL_COMMAND_MASK];
 
-		if (command >= &host->commands[sizeof(host->commands) / sizeof(ENetProtocol)] || buffer + 1 >= &host->buffers[sizeof(host->buffers) / sizeof(ENetBuffer)] || peer->mtu - host->packetSize < commandSize || (outgoingCommand->packet != NULL && (uint16_t)(peer->mtu - host->packetSize) < (uint16_t)(commandSize + outgoingCommand->fragmentLength))) {
+		if (command >= &host->commands[sizeof(host->commands) / sizeof(ENetProtocol)] || buffer + 1 >= &host->buffers[sizeof(host->buffers) / sizeof(ENetBuffer)] || (outgoingCommand->command.header.command == ENET_PROTOCOL_COMMAND_TEST_MTU && host->commandCount != 0) || peer->mtu - host->packetSize < commandSize || (outgoingCommand->packet != NULL && (uint16_t)(peer->mtu - host->packetSize) < (uint16_t)(commandSize + outgoingCommand->fragmentLength))) {
 			host->continueSending = 1;
 
 			break;
@@ -2879,6 +2980,11 @@ static int enet_protocol_check_outgoing_commands(ENetHost* host, ENetPeer* peer)
 		buffer->data = command;
 		buffer->dataLength = commandSize;
 		host->packetSize += buffer->dataLength;
+
+		if (outgoingCommand->command.header.command == ENET_PROTOCOL_COMMAND_TEST_MTU) {
+			host->packetSize = ENET_NET_TO_HOST_32(outgoingCommand->command.testMtu.mtu);
+		}
+
 		*command = outgoingCommand->command;
 
 		if (outgoingCommand->packet != NULL) {
@@ -2910,6 +3016,7 @@ static int enet_protocol_send_outgoing_commands(ENetHost* host, ENetEvent* event
 	ENetProtocolHeader* header = (ENetProtocolHeader*)headerData;
 	ENetPeer* currentPeer;
 	int sentLength;
+	uint32_t testMtu, packetHeaderSize;
 	host->continueSending = 1;
 
 	while (host->continueSending) {
@@ -2940,6 +3047,25 @@ static int enet_protocol_send_outgoing_commands(ENetHost* host, ENetEvent* event
 				enet_protocol_check_outgoing_commands(host, currentPeer);
 			}
 
+			if (currentPeer->state == ENET_PEER_STATE_CONNECTED && ENET_TIME_DIFFERENCE(host->serviceTime, currentPeer->lastMtuTestTime) >= currentPeer->mtuTestInterval && currentPeer->mtuTestCount < ENET_PEER_MAXIUMUM_MTU_TEST_COUNT) {
+				++currentPeer->mtuTestCount;
+				currentPeer->lastMtuTestTime = host->serviceTime;
+
+				// find the next higher MTU
+				testMtu = 0;
+				packetHeaderSize = enet_socket_get_header_size(host->socket);
+				for (int i = 0; i < ENET_PROTOCOL_POTENTIAL_MTU_COUNT; i++) {
+					if (currentPeer->mtu < potentialMtus[i] - packetHeaderSize) {
+						testMtu = potentialMtus[i] - packetHeaderSize;
+						break;
+					}
+				}
+				if (testMtu > 0) {
+					enet_peer_test_mtu(currentPeer, testMtu);
+					enet_protocol_check_outgoing_commands(host, currentPeer);
+				}
+			}
+
 			if (host->commandCount == 0)
 				continue;
 
@@ -2951,6 +3077,22 @@ static int enet_protocol_send_outgoing_commands(ENetHost* host, ENetEvent* event
 			}
 			else {
 				host->buffers->dataLength = (size_t) & ((ENetProtocolHeader*)0)->sentTime;
+			}
+
+			if (host->commands[0].header.command == ENET_PROTOCOL_COMMAND_TEST_MTU) {
+				host->buffers[host->bufferCount].data = host->packetData[1];
+				host->buffers[host->bufferCount].dataLength = ENET_NET_TO_HOST_32(host->commands[0].testMtu.mtu);
+				for (int i = 0; i < host->bufferCount; i++)
+					host->buffers[host->bufferCount].dataLength -= host->buffers[i].dataLength;
+
+				if (host->checksumCallback != NULL)
+					host->buffers[host->bufferCount].dataLength -= sizeof(enet_checksum);
+
+				// clear buffer and set the last 4 bytes to the mtu
+				memset(host->packetData[1], 0, host->buffers[host->bufferCount].dataLength);
+				*(uint32_t*)(host->packetData[1] + host->buffers[host->bufferCount].dataLength - 4) = host->commands[0].testMtu.mtu;
+
+				++host->bufferCount;
 			}
 
 			if (currentPeer->outgoingPeerID < ENET_PROTOCOL_MAXIMUM_PEER_ID)
@@ -3416,6 +3558,9 @@ void enet_peer_reset(ENetPeer* peer) {
 	peer->roundTripTime = 1;
 	peer->roundTripTimeVariance = 0;
 	peer->mtu = peer->host->mtu;
+	peer->lastMtuTestTime = 0;
+	peer->mtuTestInterval = ENET_PEER_TEST_MTU_INTERVAL;
+	peer->mtuTestCount = 0;
 	peer->reliableDataInTransit = 0;
 	peer->outgoingReliableSequenceNumber = 0;
 	peer->windowSize = ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE;
@@ -3437,6 +3582,28 @@ void enet_peer_ping(ENetPeer* peer) {
 
 	command.header.command = ENET_PROTOCOL_COMMAND_PING | ENET_PROTOCOL_COMMAND_FLAG_ACKNOWLEDGE;
 	command.header.channelID = 0xFF;
+
+	enet_peer_queue_outgoing_command(peer, &command, NULL, 0, 0);
+}
+
+void
+enet_peer_test_mtu(ENetPeer* peer, uint32_t mtu) {
+	ENetProtocol command;
+
+	if (peer->state != ENET_PEER_STATE_CONNECTED)
+		return;
+
+	// we have already verified the client's MTU is higher than the MTU we want to test
+	if (peer->mtu > mtu)
+		return;
+
+	// we can only test MTU up to the maximum
+	if (mtu > ENET_PROTOCOL_MAXIMUM_MTU)
+		mtu = ENET_PROTOCOL_MAXIMUM_MTU;
+
+	command.header.command = ENET_PROTOCOL_COMMAND_TEST_MTU;
+	command.header.channelID = 0xFF;
+	command.testMtu.mtu = ENET_HOST_TO_NET_32(mtu);
 
 	enet_peer_queue_outgoing_command(peer, &command, NULL, 0, 0);
 }
@@ -3979,7 +4146,7 @@ ENetHost* enet_host_create(const ENetAddress* address, size_t peerCount, size_t 
 	host->bandwidthThrottleEpoch = 0;
 	host->recalculateBandwidthLimits = 0;
 	host->preventConnections = 0;
-	host->mtu = ENET_HOST_DEFAULT_MTU;
+	host->mtu = ENET_PROTOCOL_MINIMUM_MTU - enet_socket_get_header_size(host->socket);
 	host->peerCount = peerCount;
 	host->commandCount = 0;
 	host->bufferCount = 0;
@@ -4626,6 +4793,14 @@ int enet_socket_get_option(ENetSocket socket, ENetSocketOption option, int* valu
 	return result == -1 ? -1 : 0;
 }
 
+int enet_socket_get_header_size(ENetSocket socket) {
+	int result, type;
+	socklen_t len = sizeof(int);
+	result = getsockopt(socket, SOL_SOCKET, SO_TYPE, (char*)&type, &len);
+	return ENET_SOCKET_INET_HEADER_SIZE
+		+ (result == 0 && type == SOCK_DGRAM ? ENET_SOCKET_DGRAM_HEADER_SIZE : ENET_SOCKET_STREAM_HEADER_SIZE);
+}
+
 int enet_socket_connect(ENetSocket socket, const ENetAddress* address) {
 	int result = -1;
 	struct sockaddr_in6 sin;
@@ -4961,6 +5136,14 @@ int enet_socket_get_option(ENetSocket socket, ENetSocketOption option, int* valu
 	}
 
 	return result == SOCKET_ERROR ? -1 : 0;
+}
+
+int enet_socket_get_header_size(ENetSocket socket) {
+	int result, type, len;
+	len = sizeof(int);
+	result = getsockopt(socket, SOL_SOCKET, SO_TYPE, (char*)&type, &len);
+	return ENET_SOCKET_INET_HEADER_SIZE
+		+ (result == 0 && type == SOCK_DGRAM ? ENET_SOCKET_DGRAM_HEADER_SIZE : ENET_SOCKET_STREAM_HEADER_SIZE);
 }
 
 int enet_socket_connect(ENetSocket socket, const ENetAddress* address) {
