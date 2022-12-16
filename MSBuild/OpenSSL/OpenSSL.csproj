@@ -1,4 +1,4 @@
-﻿<!--
+<!--
 Copyright (c) 2019 Chris Burns <chris@kitty.city>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -28,19 +28,6 @@ SOFTWARE.
         <EnableDefaultItems>false</EnableDefaultItems>
     </PropertyGroup>
 
-	<ItemGroup>
-		<ProjectReference Include="..\OpenSSL\OpenSSL.csproj">
-			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-			<SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
-		</ProjectReference>
-	</ItemGroup>
-
-    <Import Project="$(CsDir)Common\BannerTask.targets" Condition="'$(BuildingInsideVisualStudio)' != 'true'" />
-
-    <Target Name="ConsoleBanner" BeforeTargets="Build" Condition="'$(BuildingInsideVisualStudio)' != 'true'">
-        <BannerTask TextFile="$(CsDir)Common\Banner.txt" Condition="'$(BannerSkip)' != 'true'" />
-    </Target>
-
-    <Import Project="CMake.Build.targets" />
+    <Import Project="OpenSSL.Build.targets" />
 
 </Project>

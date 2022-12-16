@@ -38,5 +38,6 @@ SOFTWARE.
   </ItemGroup>
 
   <Import Project="$(CsDir)CMake\CMake.Copy.targets" />
+  <Import Project="$(CsDir)OpenSSL\OpenSSL.Copy.targets" />
 
 </Project>

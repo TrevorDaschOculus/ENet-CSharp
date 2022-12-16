@@ -1,0 +1,90 @@
+<!--
+Copyright (c) 2022 Trevor Dasch
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+OpenSSL build driver
+All key properties are overridable from CLI (-p:PropName=PropVal) or PropertyGroup
+
+OpenSSLProjName - project name outputted to build log
+OpenSSLSourceDir - path to OpenSSL Source
+OpenSSLBinaryDir - path to drop all the outputs
+OpenSSLTarget - The Configure target for openssl
+
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+    <PropertyGroup>
+        <OpenSSLProjName Condition="'$(OpenSSLProjName)' == ''">openssl</OpenSSLProjName>
+        <OpenSSLSourceDir Condition="'$(OpenSSLSourceDir)' == ''">$(SlnDir)third-party/openssl/src</OpenSSLSourceDir>
+        <OpenSSLBinaryDir Condition="'$(OpenSSLBinaryDir)' == '' AND '$(OSPlatformWindows)' == 'true'">$(SlnDir)third-party/openssl/out/Windows</OpenSSLBinaryDir>
+        <OpenSSLBinaryDir Condition="'$(OpenSSLBinaryDir)' == '' AND '$(OSPlatformWindows)' != 'true'">$(SlnDir)third-party/openssl/out/Linux</OpenSSLBinaryDir>
+        <OpenSSLPlatform Condition="'$(Platform)' == 'x86_64' OR '$(Platform)' == 'x64' OR '$(Platform)' == 'AnyCPU'">x64</OpenSSLPlatform>
+        <OpenSSLPlatform Condition="'$(Platform)' == 'x86'">x86</OpenSSLPlatform>
+        <OpenSSLTarget Condition="'$(OSPlatformWindows)' == 'true' AND '$(OpenSSLPlatform)' == 'x64'">VC-WIN64A</OpenSSLTarget>
+        <OpenSSLTarget Condition="'$(OSPlatformWindows)' != 'true' AND '$(OpenSSLPlatform)' == 'x64'">linux-x86_64-clang</OpenSSLTarget>
+        <OpenSSLTarget Condition="'$(OSPlatformWindows)' == 'true' AND '$(OpenSSLPlatform)' == 'x86'">VC-WIN32</OpenSSLTarget>
+        <OpenSSLTarget Condition="'$(OSPlatformWindows)' != 'true' AND '$(OpenSSLPlatform)' == 'x86'">linux-x86-clang</OpenSSLTarget>
+        <VCVarsAll Condition="'$(OSPlatformWindows)' == 'true'">cmd.exe /c &quot;&quot;$(DevEnvDir)..\..\VC\Auxiliary\Build\vcvarsall.bat&quot; $(OpenSSLPlatform) &amp;&quot;</VCVarsAll>
+        <OpenSSLMake Condition="'$(OSPlatformWindows)' == 'true'">nmake.exe</OpenSSLMake>
+        <OpenSSLMake Condition="'$(OSPlatformWindows)' != 'true'">make</OpenSSLMake>
+    </PropertyGroup>
+  
+    <Target Name="OpenSSLBuildClean" BeforeTargets="Clean">
+        <Message Text="OpenSSL -- cleaning project: $(OpenSSLProjName)" Importance="high" />
+        <RemoveDir Directories="$(OpenSSLBinaryDir)"/>
+        <MakeDir Directories="$(OpenSSLBinaryDir)"/>
+        <OnError ExecuteTargets="OpenSSLCleanFailed" />
+    </Target>
+
+    <Target Name="OpenSSLConfigTarget" BeforeTargets="Build;VSTest">
+        <Message Text="OpenSSL -- configuring $(OpenSSLTarget): $(OpenSSLProjName)" Importance="high" />
+        <MakeDir Directories="$(OpenSSLBinaryDir)" />
+        <Message Text="OpenSSL -- perl ./Configure $(OpenSSLTarget) $(OpenSSLOpts) --prefix=$(OpenSSLBinaryDir)" Importance="high" />
+        <Exec Command="$(VCVarsAll) perl ./Configure $(OpenSSLTarget) $(OpenSSLOpts) --prefix=$(OpenSSLBinaryDir)" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
+        <OnError ExecuteTargets="OpenSSLBuildFailed" />
+    </Target>
+
+    <Target Name="OpenSSLBuildTarget" BeforeTargets="Build;VSTest">
+        <Message Text="OpenSSL -- building $(OpenSSLTarget): $(OpenSSLProjName)" Importance="high" />
+        <Message Text="OpenSSL -- $(OpenSSLMake) all" Importance="high" />
+        <Exec Command="$(VCVarsAll) $(OpenSSLMake) all" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
+        <Exec Command="$(VCVarsAll) $(OpenSSLMake) install_sw" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
+        <OnError ExecuteTargets="OpenSSLBuildFailed" />
+    </Target>
+
+    <Target Name="OpenSSLBuildSuccess" BeforeTargets="Build;VSTest">
+        <Message Text="OpenSSL -- build succeeded: $(OpenSSLProjName)" Importance="high" />
+    </Target>
+
+    <Target Name="OpenSSLCleanFailed">
+        <Warning Text="OpenSSL -- the most common cause of OpenSSL clean errors is file locking (eg. windows console in the build dir)" />
+        <Warning Text="OpenSSL -- please unlock or reboot and try cleaning again before filing an issue on github:" />
+        <Warning Text="OpenSSL -- https://github.com/SoftwareGuy/ENet-CSharp" />
+        <Error Text="OpenSSL -- build failed: $(OpenSSLProjName)" />
+    </Target>
+
+    <Target Name="OpenSSLBuildFailed">
+        <Warning Text="OpenSSL -- the most common cause of OpenSSL build errors is missing tools (perl, MSVC, and NASM)" />
+        <Warning Text="OpenSSL -- please follow the instructions in third-party/openssl/src/NOTES.WIN before filing an issue on github:" />
+        <Warning Text="OpenSSL -- https://github.com/SoftwareGuy/ENet-CSharp" />
+        <Error Text="OpenSSL -- build failed: $(OpenSSLProjName)" />
+    </Target>
+
+</Project>

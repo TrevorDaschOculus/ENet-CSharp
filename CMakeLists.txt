@@ -26,9 +26,8 @@ project(${ENET_LIB_NAME} LANGUAGES C)
 
 set(ENET_DEBUG OFF CACHE BOOL "Enables debug and trace logging")
 set(ENET_PLUGIN_DIR_BASE "${CMAKE_CURRENT_SOURCE_DIR}/Unity/Plugins")
-set(ENET_PLUGIN_DIR_ARCH "x86_64")
 set(ENET_DEFINES -DENET_NO_PRAGMA_LINK -DENET_DLL)
-set(ENET_DEPS OpenSSL::SSL OpenSSL::Crypto)
+set(ENET_DEPS ssl crypto)
 set(ENET_SRCDIR "Source/Native")
 set(ENET_SRCS
 	${ENET_SRCDIR}/enet.c
@@ -36,11 +35,36 @@ set(ENET_SRCS
 	${ENET_SRCDIR}/custom/enet_logging.h
 )
 
+if(MSVC)
+    set(ENET_PLUGIN_DIR_ARCH "Windows")
+elseif(UNIX)
+    set(ENET_PLUGIN_DIR_ARCH "Linux")
+else()
+    set(ENET_PLUGIN_DIR_ARCH "x86_64")
+endif()
+
+# set up our openssl reference
+add_library(crypto SHARED IMPORTED GLOBAL)
+target_include_directories(crypto INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/include")
+target_link_directories(crypto INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/bin")
+add_library(ssl SHARED IMPORTED GLOBAL)
+target_include_directories(ssl INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/include")
+target_link_directories(ssl INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/bin")
+
+
 if(ENET_DEBUG)
     list(APPEND ENET_DEFINES -DENET_DEBUG)
 endif()
 
 if(MSVC)
+    set_target_properties(crypto PROPERTIES 
+        IMPORTED_IMPLIB "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/lib/libcrypto.lib"
+        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/bin/libcrypto-1_1-x64.dll")
+    set_target_properties(ssl PROPERTIES 
+        IMPORTED_IMPLIB "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/lib/libssl.lib"
+        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/bin/libssl-1_1-x64.dll"
+        INTERFACE_LINK_LIBRARIES crypto)
+
 	set(CompilerFlags
         CMAKE_C_FLAGS
         CMAKE_C_FLAGS_RELEASE
@@ -52,9 +76,17 @@ if(MSVC)
 
     list(APPEND ENET_DEFINES -D_CRT_SECURE_NO_WARNINGS)
 	list(APPEND ENET_DEPS Ws2_32 Winmm)
+else()
+    set_target_properties(crypto PROPERTIES
+        IMPORTED_IMPLIB "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/lib/libcrypto.a"
+        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/lib/libcrypto${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    )
+    set_target_properties(ssl PROPERTIES
+        IMPORTED_IMPLIB "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/lib/libssl.a"
+        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl/out/${ENET_PLUGIN_DIR_ARCH}/lib/libssl${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    )
 endif()
 
-find_package(OpenSSL REQUIRED)
 include_directories(${ENET_SRCDIR})
 add_library(${ENET_LIB_NAME} SHARED ${ENET_SRCS})
 target_link_libraries(${ENET_LIB_NAME} ${ENET_DEPS})

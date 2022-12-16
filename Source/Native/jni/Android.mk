@@ -3,14 +3,14 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE    := ssl
-LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/prebuilt/openssl/$(TARGET_ARCH_ABI)/include
-LOCAL_SRC_FILES := prebuilt/openssl/$(TARGET_ARCH_ABI)/lib/libssl.so
+LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/../../../third-party/openssl/out/Android/$(TARGET_ARCH_ABI)/include
+LOCAL_SRC_FILES := ../../../third-party/openssl/out/Android/$(TARGET_ARCH_ABI)/lib/libssl.so
 include $(PREBUILT_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE    := crypto
-LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/prebuilt/openssl/$(TARGET_ARCH_ABI)/include
-LOCAL_SRC_FILES := prebuilt/openssl/$(TARGET_ARCH_ABI)/lib/libcrypto.so
+LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/../../../third-party/openssl/out/Android/$(TARGET_ARCH_ABI)/include
+LOCAL_SRC_FILES := ../../../third-party/openssl/out/Android/$(TARGET_ARCH_ABI)/lib/libcrypto.so
 include $(PREBUILT_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
@@ -27,6 +27,6 @@ ifdef ENET_STATIC
 LOCAL_SHARED_LIBRARIES := ssl crypto
 	include $(BUILD_STATIC_LIBRARY)
 else
-LOCAL_STATIC_LIBRARIES := ssl crypto
+LOCAL_SHARED_LIBRARIES := ssl crypto
 	include $(BUILD_SHARED_LIBRARY)
 endif
