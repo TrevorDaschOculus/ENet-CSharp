@@ -42,30 +42,50 @@ OpenSSLTarget - The Configure target for openssl
         <OpenSSLTarget Condition="'$(OSPlatformWindows)' == 'true' AND '$(OpenSSLPlatform)' == 'x86'">VC-WIN32</OpenSSLTarget>
         <OpenSSLTarget Condition="'$(OSPlatformWindows)' != 'true' AND '$(OpenSSLPlatform)' == 'x86'">linux-x86-clang</OpenSSLTarget>
         <VCVarsAll Condition="'$(OSPlatformWindows)' == 'true'">cmd.exe /c &quot;&quot;$(DevEnvDir)..\..\VC\Auxiliary\Build\vcvarsall.bat&quot; $(OpenSSLPlatform) &amp;&quot;</VCVarsAll>
-        <OpenSSLMake Condition="'$(OSPlatformWindows)' == 'true'">nmake.exe</OpenSSLMake>
-        <OpenSSLMake Condition="'$(OSPlatformWindows)' != 'true'">make</OpenSSLMake>
     </PropertyGroup>
-  
-    <Target Name="OpenSSLBuildClean" BeforeTargets="Clean">
-        <Message Text="OpenSSL -- cleaning project: $(OpenSSLProjName)" Importance="high" />
-        <RemoveDir Directories="$(OpenSSLBinaryDir)"/>
-        <MakeDir Directories="$(OpenSSLBinaryDir)"/>
-        <OnError ExecuteTargets="OpenSSLCleanFailed" />
+
+    <Target Name="TestForJom">
+        <Exec Command="jom.exe -version >NUL 2>&amp;1" IgnoreExitCode="True">
+            <Output TaskParameter="ExitCode" PropertyName="JomExitCode" />
+        </Exec>
     </Target>
 
-    <Target Name="OpenSSLConfigTarget" BeforeTargets="Build;VSTest">
+    <Target Name="OpenSSLConfigTarget" BeforeTargets="Clean;Build;VSTest" DependsOnTargets="TestForJom">
+        <PropertyGroup Condition="'$(OSPlatformWindows)' == 'true'">
+            <OpenSSLOpts Condition="'$(JomExitCode)' == '0'">$(OpenSSLOpts) -MP -FS -wd4267 -wd4244 -wd4133 -wd4311</OpenSSLOpts>
+            <OpenSSLOpts Condition="'$(JomExitCode)' != '0'">$(OpenSSLOpts) -wd4267 -wd4244 -wd4133 -wd4311</OpenSSLOpts>
+        </PropertyGroup>
+
         <Message Text="OpenSSL -- configuring $(OpenSSLTarget): $(OpenSSLProjName)" Importance="high" />
-        <MakeDir Directories="$(OpenSSLBinaryDir)" />
         <Message Text="OpenSSL -- perl ./Configure $(OpenSSLTarget) $(OpenSSLOpts) --prefix=$(OpenSSLBinaryDir)" Importance="high" />
         <Exec Command="$(VCVarsAll) perl ./Configure $(OpenSSLTarget) $(OpenSSLOpts) --prefix=$(OpenSSLBinaryDir)" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
         <OnError ExecuteTargets="OpenSSLBuildFailed" />
     </Target>
+  
+    <Target Name="OpenSSLBuildClean" BeforeTargets="Clean">
+        <Message Text="OpenSSL -- cleaning project: $(OpenSSLProjName)" Importance="high" />
+        <PropertyGroup>
+            <OpenSSLMake Condition="'$(OSPlatformWindows)' == 'true'">nmake.exe</OpenSSLMake>
+            <OpenSSLMake Condition="'$(OSPlatformWindows)' != 'true'">make -j $(MSBuildNodeCount)</OpenSSLMake>
+        </PropertyGroup>
+        <RemoveDir Directories="$(OpenSSLBinaryDir)"/>
+        <MakeDir Directories="$(OpenSSLBinaryDir)"/>
+        <Message Text="$(OpenSSLMake) clean" Importance="high" />
+        <Exec Command="$(OpenSSLMake) clean" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="low" />
+        <OnError ExecuteTargets="OpenSSLCleanFailed" />
+    </Target>
 
-    <Target Name="OpenSSLBuildTarget" BeforeTargets="Build;VSTest">
+    <Target Name="OpenSSLBuildTarget" BeforeTargets="Build;VSTest" DependsOnTargets="TestForJom">
+        <PropertyGroup>
+            <OpenSSLMake Condition="'$(OSPlatformWindows)' == 'true' AND '$(JomExitCode)' == '0'">jom.exe /j$(MSBuildNodeCount)</OpenSSLMake>
+            <OpenSSLMake Condition="'$(OSPlatformWindows)' == 'true' AND '$(JomExitCode)' != '0'">nmake.exe</OpenSSLMake>
+            <OpenSSLMake Condition="'$(OSPlatformWindows)' != 'true'">make -j $(MSBuildNodeCount)</OpenSSLMake>
+        </PropertyGroup>
         <Message Text="OpenSSL -- building $(OpenSSLTarget): $(OpenSSLProjName)" Importance="high" />
-        <Message Text="OpenSSL -- $(OpenSSLMake) all" Importance="high" />
-        <Exec Command="$(VCVarsAll) $(OpenSSLMake) all" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
-        <Exec Command="$(VCVarsAll) $(OpenSSLMake) install_sw" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
+        <Message Condition="'$(JomExitCode)' != '0'" Text="OpenSSL -- jom not found, using nmake. We recommend installing jom for faster builds: https://wiki.qt.io/Jom" Importance="high" />
+        <Message Text="$(OpenSSLMake) all &amp;&amp; $(OpenSSLMake) install_sw" Importance="high" />
+        <!-- There's a strange issue when using jom that 'jom install_sw' sometimes fails (I assume due to a race condition). Retrying always seems to succeed from my testing. -->
+        <Exec Command="$(VCVarsAll) $(OpenSSLMake) all &amp;&amp; $(VCVarsAll) $(OpenSSLMake) install_sw || $(VCVarsAll) $(OpenSSLMake) install_sw" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
         <OnError ExecuteTargets="OpenSSLBuildFailed" />
     </Target>
 

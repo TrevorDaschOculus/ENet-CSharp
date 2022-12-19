@@ -56,15 +56,27 @@ function configure_make() {
 
     cmd.exe /c "$VCVARSALL_PATH" x64
 
-    cmd.exe /c perl ./Configure VC-WIN64A --prefix="${PREFIX_DIR}"
+    # check if jom exists
+    local has_jom=$(cmd.exe /c "jom -version >NUL 2>&1 && echo 1 || echo 0" | tr -d '\r')
+
+    if [[ "$has_jom" -eq "1" ]]
+    then
+        MAKE="jom -j $(get_cpu_count)"
+        CONFIG_PARAMS="-FS -MP1"
+    else
+        MAKE="nmake"
+        CONFIG_PARAMS=""
+    fi
+
+    cmd.exe /c perl ./Configure VC-WIN64A $CONFIG_PARAMS --prefix="${PREFIX_DIR}"
 
     log_info "make windows start..."
 
-    cmd.exe /c "$VCVARSALL_PATH" x64 "&&" nmake clean > "${OUTPUT_ROOT}/log/windows.log" 2>/dev/null
-    cmd.exe /c "$VCVARSALL_PATH" x64 "&&" nmake all >> "${OUTPUT_ROOT}/log/windows.log" 2>&1
+    cmd.exe /c "$VCVARSALL_PATH" x64 "&&" $MAKE clean > "${OUTPUT_ROOT}/log/windows.log" 2>/dev/null
+    cmd.exe /c "$VCVARSALL_PATH" x64 "&&" $MAKE all >> "${OUTPUT_ROOT}/log/windows.log" 2>&1
     the_rc=$?
     if [ $the_rc -eq 0 ] ; then
-        cmd.exe /c "$VCVARSALL_PATH" x64 "&&" nmake install_sw >> "${OUTPUT_ROOT}/log/windows.log" 2>&1
+        cmd.exe /c "$VCVARSALL_PATH" x64 "&&" $MAKE install_sw "||" $MAKE install_sw >> "${OUTPUT_ROOT}/log/windows.log" 2>&1
     fi
 
     popd

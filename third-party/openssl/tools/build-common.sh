@@ -31,6 +31,14 @@ function realpath() {
     echo $REALPATH
 }
 
+function get_cpu_count() {
+    if [ "$(uname)" == "Darwin" ]; then
+        echo $(sysctl -n hw.physicalcpu)
+    else
+        echo $(nproc)
+    fi
+}
+
 export bold_color="\033[1;m"
 export warn_color="\033[33m"
 export error_color="\033[31m"
