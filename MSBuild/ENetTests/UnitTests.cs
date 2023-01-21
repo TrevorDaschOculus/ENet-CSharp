@@ -67,18 +67,35 @@ public class UnitTests
         }
     }
 
+    public enum SslUsage
+    {
+        UseSsl,
+        DontUseSsl
+    }
+
+    public enum CertificateUsage
+    {
+        UseFiles,
+        UseData
+    }
+
     [Test]
-    [TestCase(false, 1)]
-    [TestCase(false, 2)]
-    [TestCase(false, 3)]
-    [TestCase(false, 4)]
-    [TestCase(false, 5)]
-    [TestCase(true, 1)]
-    [TestCase(true, 2)]
-    [TestCase(true, 3)]
-    [TestCase(true, 4)]
-    [TestCase(true, 5)]
-    public void SendAndRecv(bool useSsl, int maxClients)
+    [TestCase(SslUsage.DontUseSsl, CertificateUsage.UseData, 1)]
+    [TestCase(SslUsage.DontUseSsl, CertificateUsage.UseData, 2)]
+    [TestCase(SslUsage.DontUseSsl, CertificateUsage.UseData, 3)]
+    [TestCase(SslUsage.DontUseSsl, CertificateUsage.UseData, 4)]
+    [TestCase(SslUsage.DontUseSsl, CertificateUsage.UseData, 5)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseData, 1)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseData, 2)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseData, 3)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseData, 4)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseData, 5)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseFiles, 1)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseFiles, 2)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseFiles, 3)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseFiles, 4)]
+    [TestCase(SslUsage.UseSsl, CertificateUsage.UseFiles, 5)]
+    public void SendAndRecv(SslUsage sslUsage, CertificateUsage certificateUsage, int maxClients)
     {
         const ushort port = 7777;
         const byte dataVal = 42;
@@ -112,11 +129,19 @@ public class UnitTests
             SslConfiguration serverConfiguration = new SslConfiguration();
             SslConfiguration clientConfiguration = new SslConfiguration();
 
-            if (useSsl)
+            if (sslUsage == SslUsage.UseSsl)
             {
                 serverConfiguration.Mode = SslMode.Server;
-                serverConfiguration.CertificatePath = "testCert.pem";
-                serverConfiguration.PrivateKeyPath = "testKey.pem";
+                if (certificateUsage == CertificateUsage.UseFiles)
+                {
+                    serverConfiguration.CertificatePath = "testCert.pem";
+                    serverConfiguration.PrivateKeyPath = "testKey.pem";
+                }
+                else
+                {
+                    serverConfiguration.Certificate = System.IO.File.ReadAllText("testCert.pem");
+                    serverConfiguration.PrivateKey = System.IO.File.ReadAllText("testKey.pem");
+                }
 
                 clientConfiguration.Mode = SslMode.Client;
                 clientConfiguration.ValidateCertificate = false;
