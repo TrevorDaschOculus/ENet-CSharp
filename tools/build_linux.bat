@@ -16,7 +16,7 @@ cd build_cmake_enet
 del CMakeCache.txt
 
 echo "Configuring CMake Linux (Debug)"
-call bash -c "cmake -DENET_DEBUG=ON .."
+call bash -c "cmake -DOpenSSL_ROOT=../third-party/openssl/out/Linux/ -DENET_DEBUG=ON .."
 
 echo "Building ENet Linux (Debug)"
 call bash -c "make clean"
@@ -28,7 +28,7 @@ echo "Configuring CMake Linux"
 
 del CMakeCache.txt
 
-call bash -c "cmake .."
+call bash -c "cmake -DOpenSSL_ROOT=../third-party/openssl/out/Linux/ .."
 
 echo "Building ENet Linux"
 call bash -c "make clean"

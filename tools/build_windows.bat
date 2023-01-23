@@ -18,7 +18,7 @@ cd build_cmake_enet
 
 del CMakeCache.txt
 
-call cmake ..
+call cmake -DOpenSSL_ROOT=..\third-party\openssl\out\Windows\ ..
 
 echo "Building ENet Windows"
 call MSBuild.exe enet.sln /t:Clean,Build /property:Configuration=Release
