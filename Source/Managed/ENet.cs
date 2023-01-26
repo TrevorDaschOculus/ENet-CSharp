@@ -82,17 +82,23 @@ namespace ENet
 		public ushort port;
 	}
 
-	[StructLayout(LayoutKind.Sequential)]
+	[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Ansi)]
 	internal struct ENetSslConfiguration
 	{
 		public SslMode mode;
-		public IntPtr certificatePath;
-		public IntPtr certificate;
-		public IntPtr privateKeyPath;
-		public IntPtr privateKey;
+		[MarshalAs(UnmanagedType.LPStr)]
+		public string certificatePath;
+		[MarshalAs(UnmanagedType.LPStr)]
+		public string certificate;
+		[MarshalAs(UnmanagedType.LPStr)]
+		public string privateKeyPath;
+		[MarshalAs(UnmanagedType.LPStr)]
+		public string privateKey;
 		public int validateCertificate;
-		public IntPtr rootCertificatePath;
-		public IntPtr rootCertificate;
+		[MarshalAs(UnmanagedType.LPStr)]
+		public string rootCertificatePath;
+		[MarshalAs(UnmanagedType.LPStr)]
+		public string rootCertificate;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -141,80 +147,6 @@ namespace ENet
 				pointerBuffer = new IntPtr[Library.maxPeers];
 
 			return pointerBuffer;
-		}
-	}
-
-	internal class HGlobalMemoryHandle : IDisposable
-	{
-		private IntPtr ptr;
-		public HGlobalMemoryHandle(IntPtr ptr)
-		{
-			this.ptr = ptr;
-		}
-
-		public void Dispose()
-		{
-			Dispose(true);
-			GC.SuppressFinalize(this);
-		}
-
-		private void Dispose(bool disposing)
-		{
-			if (ptr != IntPtr.Zero)
-			{
-				Marshal.FreeHGlobal(ptr);
-				ptr = IntPtr.Zero;
-			}
-		}
-
-		~HGlobalMemoryHandle()
-		{
-			Dispose(false);
-		}
-	}
-
-	internal struct CachedNativeString
-	{
-		private string managedString;
-		private IntPtr nativeString;
-		private HGlobalMemoryHandle memoryHandle;
-
-		private void Reset()
-		{
-			memoryHandle?.Dispose();
-			memoryHandle = null;
-			nativeString = IntPtr.Zero;
-			managedString = null;
-		}
-
-		public string Get(ref IntPtr externalNativeString)
-		{
-			if (nativeString != externalNativeString)
-			{
-				Reset();
-				nativeString = externalNativeString;
-			}
-
-			if (managedString == null && externalNativeString != IntPtr.Zero)
-			{
-				managedString = Marshal.PtrToStringAnsi(externalNativeString);
-			}
-			return managedString;
-		}
-
-		public void Set(ref IntPtr externalNativeString, string value)
-		{
-			if (value == null || value != managedString)
-			{
-				Reset();
-				managedString = value;
-				if (managedString != null)
-				{
-					nativeString = Marshal.StringToHGlobalAnsi(value);
-					memoryHandle = new HGlobalMemoryHandle(nativeString);
-				}
-			}
-			externalNativeString = nativeString;
 		}
 	}
 
@@ -294,14 +226,6 @@ namespace ENet
 	{
 		private ENetSslConfiguration nativeSslConfiguration;
 
-		// Cache the native strings to keep them alive for the life of this struct
-		private CachedNativeString certificatePath;
-		private CachedNativeString certificate;
-		private CachedNativeString privateKeyPath;
-		private CachedNativeString privateKey;
-		private CachedNativeString rootCertificatePath;
-		private CachedNativeString rootCertificate;
-
 		internal ENetSslConfiguration NativeSslConfiguration
 		{
 			get
@@ -318,12 +242,6 @@ namespace ENet
 		internal SslConfiguration(ENetSslConfiguration sslConfiguration)
 		{
 			nativeSslConfiguration = sslConfiguration;
-			certificatePath = default;
-			certificate = default;
-			privateKeyPath = default;
-			privateKey = default;
-			rootCertificatePath = default;
-			rootCertificate = default;
 		}
 
 		public void Dispose()
@@ -355,12 +273,12 @@ namespace ENet
 		{
 			get
 			{
-				return certificatePath.Get(ref nativeSslConfiguration.certificatePath);
+				return nativeSslConfiguration.certificatePath;
 			}
 
 			set
 			{
-				certificatePath.Set(ref nativeSslConfiguration.certificatePath, value);
+				nativeSslConfiguration.certificatePath = value;
 			}
 		}
 
@@ -368,12 +286,12 @@ namespace ENet
 		{
 			get
 			{
-				return certificate.Get(ref nativeSslConfiguration.certificate);
+				return nativeSslConfiguration.certificate;
 			}
 
 			set
 			{
-				certificate.Set(ref nativeSslConfiguration.certificate, value);
+				nativeSslConfiguration.certificate = value;
 			}
 		}
 
@@ -381,12 +299,12 @@ namespace ENet
 		{
 			get
 			{
-				return privateKeyPath.Get(ref nativeSslConfiguration.privateKeyPath);
+				return nativeSslConfiguration.privateKeyPath;
 			}
 
 			set
 			{
-				privateKeyPath.Set(ref nativeSslConfiguration.privateKeyPath, value);
+				nativeSslConfiguration.privateKeyPath = value;
 			}
 		}
 
@@ -394,12 +312,12 @@ namespace ENet
 		{
 			get
 			{
-				return privateKey.Get(ref nativeSslConfiguration.privateKey);
+				return nativeSslConfiguration.privateKey;
 			}
 
 			set
 			{
-				privateKey.Set(ref nativeSslConfiguration.privateKey, value);
+				nativeSslConfiguration.privateKey = value;
 			}
 		}
 
@@ -420,12 +338,12 @@ namespace ENet
 		{
 			get
 			{
-				return rootCertificatePath.Get(ref nativeSslConfiguration.rootCertificatePath);
+				return nativeSslConfiguration.rootCertificatePath;
 			}
 
 			set
 			{
-				rootCertificatePath.Set(ref nativeSslConfiguration.rootCertificatePath, value);
+				nativeSslConfiguration.rootCertificatePath = value;
 			}
 		}
 
@@ -433,12 +351,12 @@ namespace ENet
 		{
 			get
 			{
-				return rootCertificate.Get(ref nativeSslConfiguration.rootCertificate);
+				return nativeSslConfiguration.rootCertificate;
 			}
 
 			set
 			{
-				rootCertificate.Set(ref nativeSslConfiguration.rootCertificate, value);
+				nativeSslConfiguration.rootCertificate = value;
 			}
 		}
 	}
