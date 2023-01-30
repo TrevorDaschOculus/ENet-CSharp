@@ -30,10 +30,8 @@ SOFTWARE.
             <CryptoPluginFullPath Condition="'$(OSPlatformWindows)' != 'true'">$(SlnDir)third-party/openssl/out/Linux\lib\libcrypto.$(PluginExt)</CryptoPluginFullPath>
             <SslPluginFullPath Condition="'$(OSPlatformWindows)' == 'true'">$(SlnDir)third-party\openssl\out\Windows\bin\libssl-1_1-$(OpenSSLPlatform).$(PluginExt)</SslPluginFullPath>
             <SslPluginFullPath Condition="'$(OSPlatformWindows)' != 'true'">$(SlnDir)third-party/openssl/out/Linux\lib\libssl.$(PluginExt)</SslPluginFullPath>
-            <CryptoOutputFullPath Condition="'$(OSPlatformWindows)' == 'true'">$(OutputPath)crypto.$(PluginExt)</CryptoOutputFullPath>
-            <CryptoOutputFullPath Condition="'$(OSPlatformWindows)' != 'true'">$(OutputPath)libcrypto.$(PluginExt)</CryptoOutputFullPath>
-            <SslOutputFullPath Condition="'$(OSPlatformWindows)' == 'true'">$(OutputPath)crypto.$(PluginExt)</SslOutputFullPath>
-            <SslOutputFullPath Condition="'$(OSPlatformWindows)' != 'true'">$(OutputPath)libcrypto.$(PluginExt)</SslOutputFullPath>
+            <CryptoOutputFullPath>$(OutputPath)$(PluginPrefix)crypto.$(PluginExt)</CryptoOutputFullPath>
+            <SslOutputFullPath>$(OutputPath)$(PluginPrefix)ssl.$(PluginExt)</SslOutputFullPath>
         </PropertyGroup>
 
         <Copy SourceFiles="$(CryptoPluginFullPath)" DestinationFiles="$(CryptoOutputFullPath)" SkipUnchangedFiles="true" />
