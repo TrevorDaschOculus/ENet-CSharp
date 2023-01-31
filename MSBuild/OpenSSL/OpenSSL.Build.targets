@@ -22,7 +22,6 @@ SOFTWARE.
 OpenSSL build driver
 All key properties are overridable from CLI (-p:PropName=PropVal) or PropertyGroup
 
-OpenSSLProjName - project name outputted to build log
 OpenSSLSourceDir - path to OpenSSL Source
 OpenSSLBinaryDir - path to drop all the outputs
 OpenSSLTarget - The Configure target for openssl
@@ -31,7 +30,6 @@ OpenSSLTarget - The Configure target for openssl
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
     <PropertyGroup>
-        <OpenSSLProjName Condition="'$(OpenSSLProjName)' == ''">openssl</OpenSSLProjName>
         <OpenSSLSourceDir Condition="'$(OpenSSLSourceDir)' == ''">$(SlnDir)third-party/openssl/src</OpenSSLSourceDir>
         <OpenSSLBinaryDir Condition="'$(OpenSSLBinaryDir)' == '' AND '$(OSPlatformWindows)' == 'true'">$(SlnDir)third-party/openssl/out/Windows</OpenSSLBinaryDir>
         <OpenSSLBinaryDir Condition="'$(OpenSSLBinaryDir)' == '' AND '$(OSPlatformWindows)' != 'true'">$(SlnDir)third-party/openssl/out/Linux</OpenSSLBinaryDir>
@@ -56,14 +54,29 @@ OpenSSLTarget - The Configure target for openssl
             <OpenSSLOpts Condition="'$(JomExitCode)' != '0'">$(OpenSSLOpts) -wd4267 -wd4244 -wd4133 -wd4311</OpenSSLOpts>
         </PropertyGroup>
 
-        <Message Text="OpenSSL -- configuring $(OpenSSLTarget): $(OpenSSLProjName)" Importance="high" />
-        <Message Text="OpenSSL -- perl ./Configure $(OpenSSLTarget) $(OpenSSLOpts) --prefix=$(OpenSSLBinaryDir)" Importance="high" />
-        <Exec Command="$(VCVarsAll) perl ./Configure $(OpenSSLTarget) $(OpenSSLOpts) --prefix=$(OpenSSLBinaryDir)" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
+        <Message Text="OpenSSL -- configuring $(OpenSSLTarget)" Importance="high" />
+
+        <!-- compare previous config call to see if this is necessary -->
+        <Exec Command="perl configdata.pm -c" WorkingDirectory="$(OpenSSLSourceDir)" IgnoreExitCode="True" ConsoleToMsBuild="True" StandardOutputImportance="Low">
+            <Output TaskParameter="ConsoleOutput" PropertyName="OpenSSLConfigCommandLine" />
+            <Output TaskParameter="ExitCode" PropertyName="OpenSSLConfigExitCode" />
+        </Exec>
+
+        <PropertyGroup>
+            <PrevArgs Condition="'$(OpenSSLConfigExitCode)' == '0'">$([System.Text.RegularExpressions.Regex]::Match($(OpenSSLConfigCommandLine), `Configure [^;]*`))</PrevArgs>
+            <CurrArgsRaw>Configure $(OpenSSLTarget) $(OpenSSLOpts) --prefix=$(OpenSSLBinaryDir)</CurrArgsRaw>
+            <CurrArgs>$([System.Text.RegularExpressions.Regex]::Replace($(CurrArgsRaw), `\s+`, ` `))</CurrArgs>
+        </PropertyGroup>
+
+        <Message Text="OpenSSL -- reusing previous configuration" Importance="high" Condition="'$(CurrArgs)' == '$(PrevArgs)'" />
+        <Message Text="OpenSSL -- perl $(CurrArgs)" Importance="high" Condition="'$(CurrArgs)' != '$(PrevArgs)'" />
+        <Exec Command="$(VCVarsAll) perl $(CurrArgs)" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" Condition="'$(CurrArgs)' != '$(PrevArgs)'" />
         <OnError ExecuteTargets="OpenSSLBuildFailed" />
+
     </Target>
   
     <Target Name="OpenSSLBuildClean" BeforeTargets="Clean">
-        <Message Text="OpenSSL -- cleaning project: $(OpenSSLProjName)" Importance="high" />
+        <Message Text="OpenSSL -- cleaning project" Importance="high" />
         <PropertyGroup>
             <OpenSSLMake Condition="'$(OSPlatformWindows)' == 'true'">nmake.exe</OpenSSLMake>
             <OpenSSLMake Condition="'$(OSPlatformWindows)' != 'true'">make -j $(MSBuildNodeCount)</OpenSSLMake>
@@ -81,7 +94,7 @@ OpenSSLTarget - The Configure target for openssl
             <OpenSSLMake Condition="'$(OSPlatformWindows)' == 'true' AND '$(JomExitCode)' != '0'">nmake.exe</OpenSSLMake>
             <OpenSSLMake Condition="'$(OSPlatformWindows)' != 'true'">make -j $(MSBuildNodeCount)</OpenSSLMake>
         </PropertyGroup>
-        <Message Text="OpenSSL -- building $(OpenSSLTarget): $(OpenSSLProjName)" Importance="high" />
+        <Message Text="OpenSSL -- building $(OpenSSLTarget)" Importance="high" />
         <Message Condition="'$(JomExitCode)' != '0'" Text="OpenSSL -- jom not found, using nmake. We recommend installing jom for faster builds: https://wiki.qt.io/Jom" Importance="high" />
         <Message Text="$(OpenSSLMake) all &amp;&amp; $(OpenSSLMake) install_sw" Importance="high" />
         <!-- There's a strange issue when using jom that 'jom install_sw' sometimes fails (I assume due to a race condition). Retrying always seems to succeed from my testing. -->
@@ -90,21 +103,21 @@ OpenSSLTarget - The Configure target for openssl
     </Target>
 
     <Target Name="OpenSSLBuildSuccess" BeforeTargets="Build;VSTest">
-        <Message Text="OpenSSL -- build succeeded: $(OpenSSLProjName)" Importance="high" />
+        <Message Text="OpenSSL -- build succeeded" Importance="high" />
     </Target>
 
     <Target Name="OpenSSLCleanFailed">
         <Warning Text="OpenSSL -- the most common cause of OpenSSL clean errors is file locking (eg. windows console in the build dir)" />
         <Warning Text="OpenSSL -- please unlock or reboot and try cleaning again before filing an issue on github:" />
         <Warning Text="OpenSSL -- https://github.com/SoftwareGuy/ENet-CSharp" />
-        <Error Text="OpenSSL -- build failed: $(OpenSSLProjName)" />
+        <Error Text="OpenSSL -- build failed" />
     </Target>
 
     <Target Name="OpenSSLBuildFailed">
         <Warning Text="OpenSSL -- the most common cause of OpenSSL build errors is missing tools (perl, MSVC, and NASM)" />
         <Warning Text="OpenSSL -- please follow the instructions in third-party/openssl/src/NOTES.WIN before filing an issue on github:" />
         <Warning Text="OpenSSL -- https://github.com/SoftwareGuy/ENet-CSharp" />
-        <Error Text="OpenSSL -- build failed: $(OpenSSLProjName)" />
+        <Error Text="OpenSSL -- build failed" />
     </Target>
 
 </Project>
