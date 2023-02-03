@@ -39,6 +39,7 @@ OpenSSLTarget - The Configure target for openssl
         <OpenSSLTarget Condition="'$(OSPlatformWindows)' != 'true' AND '$(OpenSSLPlatform)' == 'x64'">linux-x86_64-clang</OpenSSLTarget>
         <OpenSSLTarget Condition="'$(OSPlatformWindows)' == 'true' AND '$(OpenSSLPlatform)' == 'x86'">VC-WIN32</OpenSSLTarget>
         <OpenSSLTarget Condition="'$(OSPlatformWindows)' != 'true' AND '$(OpenSSLPlatform)' == 'x86'">linux-x86-clang</OpenSSLTarget>
+        <OpenSSLOpts Condition="'$(Configuration)' == 'Debug'">$(OpenSSLOpts) --debug</OpenSSLOpts>
         <VCVarsAll Condition="'$(OSPlatformWindows)' == 'true'">cmd.exe /c &quot;&quot;$(DevEnvDir)..\..\VC\Auxiliary\Build\vcvarsall.bat&quot; $(OpenSSLPlatform) &amp;&quot;</VCVarsAll>
     </PropertyGroup>
 
@@ -99,6 +100,11 @@ OpenSSLTarget - The Configure target for openssl
         <Message Text="$(OpenSSLMake) all &amp;&amp; $(OpenSSLMake) install_sw" Importance="high" />
         <!-- There's a strange issue when using jom that 'jom install_sw' sometimes fails (I assume due to a race condition). Retrying always seems to succeed from my testing. -->
         <Exec Command="$(VCVarsAll) $(OpenSSLMake) all &amp;&amp; $(VCVarsAll) $(OpenSSLMake) install_sw || $(VCVarsAll) $(OpenSSLMake) install_sw" WorkingDirectory="$(OpenSSLSourceDir)" StandardOutputImportance="low" StandardErrorImportance="high" />
+        <!-- copy openssl libraries to the version with a d suffix for cmake to find for debug builds -->
+        <Copy Condition="'$(OSPlatformWindows)' == 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libcrypto.lib" DestinationFiles="$(OpenSSLBinaryDir)/lib/libcryptod.lib" />
+        <Copy Condition="'$(OSPlatformWindows)' == 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libssl.lib" DestinationFiles="$(OpenSSLBinaryDir)/lib/libssld.lib" />
+        <Copy Condition="'$(OSPlatformWindows)' != 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libcrypto.a" DestinationFiles="$(OpenSSLBinaryDir)/lib/libcryptod.a" />
+        <Copy Condition="'$(OSPlatformWindows)' != 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libssl.a" DestinationFiles="$(OpenSSLBinaryDir)/lib/libssld.a" />
         <OnError ExecuteTargets="OpenSSLBuildFailed" />
     </Target>
 
