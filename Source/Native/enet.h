@@ -33,6 +33,7 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/opensslv.h>
+#include <openssl/x509v3.h>
 #include "custom/enet_logging.h"
 
 #define ENET_VERSION_MAJOR 2
@@ -510,6 +511,7 @@ extern "C" {
 		int validateCertificate;
 		const char* rootCertificatePath;
 		const char* rootCertificate;
+		const char* hostName;
 	} ENetSslConfiguration;
 
 	typedef enum _ENetSslSocketSonnectionState {
@@ -526,6 +528,7 @@ extern "C" {
 		ENetSslCtx* ctx;
 		ENetSocket socket;
 		ENetList connectionList;
+		char* hostName;
 		uint8_t sendBuffer[ENET_PROTOCOL_MAXIMUM_MTU];
 	} ENetSslSocket;
 
@@ -5719,6 +5722,12 @@ static ENetSslSocketConnection* enet_ssl_socket_connection_create_connect(ENetSs
 	// set the last read time for our manual timeout
 	connection->lastReadTime = enet_time_get();
 
+	// Set hostname validation for this connection
+   	if (ssl->hostName != NULL) {
+    	SSL_set1_host(connection->ssl, ssl->hostName);
+      	SSL_set_hostflags(connection->ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+   	}
+
 	// transition our state to connecting
 	connection->state = ENET_SSL_SOCKET_CONNECTION_STATE_CONNECTING;
 
@@ -6072,6 +6081,7 @@ ENetSslSocket* enet_ssl_socket_create(ENetSslConfiguration* sslConfiguration) {
 
 	ssl->mode = sslConfiguration == NULL ? ENET_SSL_MODE_NONE : sslConfiguration->mode;
 	ssl->ctx = NULL;
+	ssl->hostName = NULL;
 	enet_list_clear(&ssl->connectionList);
 
 	ssl->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
@@ -6153,6 +6163,14 @@ ENetSslSocket* enet_ssl_socket_create(ENetSslConfiguration* sslConfiguration) {
 		}
 		if (sslConfiguration->validateCertificate == 0) {
 			SSL_CTX_set_cert_verify_callback(ssl->ctx, enet_allow_all_certificates, NULL);
+		}
+		else if(sslConfiguration->hostName == NULL) {
+			ENET_LOG_ERROR("ERROR: hostname not specified!");
+			enet_ssl_socket_destroy(ssl);
+			return NULL;
+		}
+		else {
+			ssl->hostName = OPENSSL_strdup(sslConfiguration->hostName);
 		}
 	}
 
@@ -6395,6 +6413,10 @@ void enet_ssl_socket_destroy(ENetSslSocket* ssl) {
 	// close our socket
 	if (ssl->socket != ENET_SOCKET_NULL)
 		enet_socket_destroy(ssl->socket);
+
+	// free hostname
+	if (ssl->hostName != NULL)
+		OPENSSL_free(ssl->hostName);
 
 	// release the memory
 	enet_free(ssl);

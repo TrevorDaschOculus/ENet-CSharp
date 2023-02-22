@@ -99,6 +99,8 @@ namespace ENet
 		public string rootCertificatePath;
 		[MarshalAs(UnmanagedType.LPStr)]
 		public string rootCertificate;
+		[MarshalAs(UnmanagedType.LPStr)]
+		public string hostName;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -252,6 +254,7 @@ namespace ENet
 			PrivateKey = null;
 			RootCertificatePath = null;
 			RootCertificate = null;
+			HostName = null;
 		}
 
 		public SslMode Mode
@@ -357,6 +360,19 @@ namespace ENet
 			set
 			{
 				nativeSslConfiguration.rootCertificate = value;
+			}
+		}
+
+		public string HostName
+		{
+			get
+			{
+				return nativeSslConfiguration.hostName;
+			}
+
+			set
+			{
+				nativeSslConfiguration.hostName = value;
 			}
 		}
 	}
