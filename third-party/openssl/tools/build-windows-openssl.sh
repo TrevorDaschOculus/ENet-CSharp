@@ -62,10 +62,10 @@ function configure_make() {
     if [[ "$has_jom" -eq "1" ]]
     then
         MAKE="jom -j $(get_cpu_count)"
-        CONFIG_PARAMS="-FS -MP1"
+        CONFIG_PARAMS="-FS -MP1 -MT"
     else
         MAKE="nmake"
-        CONFIG_PARAMS=""
+        CONFIG_PARAMS="-MT"
     fi
 
     cmd.exe /c perl ./Configure VC-WIN64A $CONFIG_PARAMS --prefix="${PREFIX_DIR}"
