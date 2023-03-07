@@ -24,7 +24,7 @@ echo "Building ENet Windows"
 call MSBuild.exe enet.sln /t:Clean,Build /property:Configuration=Release
 cd ..
 
-copy third-party\openssl\out\Windows\bin\libcrypto-1_1-x64.dll Unity\Plugins\Windows\crypto.dll
-copy third-party\openssl\out\Windows\bin\libssl-1_1-x64.dll Unity\Plugins\Windows\ssl.dll
+copy third-party\openssl\out\Windows\bin\libcrypto-1_1-x64.dll Unity\Plugins\Windows\
+copy third-party\openssl\out\Windows\bin\libssl-1_1-x64.dll Unity\Plugins\Windows\
 
 popd
