@@ -49,6 +49,10 @@ SOFTWARE.
         <DefineConstants>$(DefineConstants);EN_PLATFORM_OSX;EN_SOCK_API_POSIX</DefineConstants>
     </PropertyGroup>
 
+    <PropertyGroup Condition="'$(Platform)' == 'x86_64' OR '$(Platform)' == 'x64' OR '$(Platform)' == 'AnyCPU'">
+        <DefineConstants>$(DefineConstants);ENET_64</DefineConstants>
+    </PropertyGroup>
+
     <PropertyGroup>
         <PluginDir>$(SlnDir)build_cmake_enet\</PluginDir>
         <PluginDir Condition="'$(OSPlatformWindows)' == 'true'">$(PluginDir)$(Configuration)\</PluginDir>

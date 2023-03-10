@@ -1351,8 +1351,13 @@ namespace ENet
 		private const string sslNativeLibrary = "libssl";
 #elif UNITY_EDITOR_WIN
 		private const string nativeLibrary = "enet";
+#if UNITY_64 || ENET_64
 		private const string cryptoNativeLibrary = "libcrypto-1_1-x64";
 		private const string sslNativeLibrary = "libssl-1_1-x64";
+#else
+		private const string cryptoNativeLibrary = "libcrypto-1_1";
+		private const string sslNativeLibrary = "libssl-1_1";
+#endif
 #else
 		private const string nativeLibrary = "enet";
 		private const string cryptoNativeLibrary = "crypto";
@@ -1375,8 +1380,13 @@ namespace ENet
 #elif UNITY_STANDALONE_WIN || EN_PLATFORM_WINDOWS
 		// Windows
 		private const string nativeLibrary = "enet";
+#if UNITY_64 || ENET_64
 		private const string cryptoNativeLibrary = "libcrypto-1_1-x64";
 		private const string sslNativeLibrary = "libssl-1_1-x64";
+#else
+		private const string cryptoNativeLibrary = "libcrypto-1_1";
+		private const string sslNativeLibrary = "libssl-1_1";
+#endif
 #else
 		// Assume everything else
 		private const string nativeLibrary = "enet";

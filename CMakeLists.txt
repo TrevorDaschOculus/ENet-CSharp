@@ -38,7 +38,11 @@ set(ENET_SRCS
 )
 
 if(MSVC)
-    set(ENET_PLUGIN_DIR_ARCH "Windows")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(ENET_PLUGIN_DIR_ARCH "Windows/x86")
+    else()
+        set(ENET_PLUGIN_DIR_ARCH "Windows/x86_64")
+    endif()
 elseif(UNIX)
     set(ENET_PLUGIN_DIR_ARCH "Linux")
 else()

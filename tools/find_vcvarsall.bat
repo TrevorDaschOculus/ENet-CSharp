@@ -1,5 +1,11 @@
 @echo off
 
+if "%~1"=="x86" (
+  set PLATFORM=x86
+) else (
+  set PLATFORM=x64
+)
+
 
 REM Check if vcvarsal.bat has already run
 if defined VCVARSALL_PATH (
@@ -13,7 +19,14 @@ if defined VCVARSALL_PATH (
 		goto :find
 	)
 
-	goto :done
+	if defined VCVARSALL_PLATFORM (		
+		if "%VCVARSALL_PLATFORM%"=="%PLATFORM%" (
+			goto :done
+		) else (
+			# need to reapply vcvarsall for new platform
+			goto :found
+		)
+	)
 )
 
 :find
@@ -38,6 +51,7 @@ exit 1
 
 REM strip surrounding quotes
 set VCVARSALL_PATH=%VCVARSALL_PATH:"=%
-call "%VCVARSALL_PATH%" x64
+set VCVARSALL_PLATFORM=%PLATFORM%
+call "%VCVARSALL_PATH%" %VCVARSALL_PLATFORM%
 
 :done

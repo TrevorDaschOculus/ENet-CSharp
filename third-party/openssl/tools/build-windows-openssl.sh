@@ -21,7 +21,16 @@ set -u
 
 source ./build-common.sh
 
+if [ -z ${arch+x} ]; then 
+  arch=("x86" "x64")
+fi
+if [ -z ${target+x} ]; then 
+  target=("x86" "x86_64")
+fi
+
 export PLATFORM_TYPE="Windows"
+export ARCHS=(${arch[@]})
+export TARGETS=(${target[@]})
 
 init_log_color
 
@@ -37,15 +46,30 @@ echo TOOLS_ROOT=${TOOLS_ROOT}
 
 OPENSSL_SRC_DIR="${TOOLS_ROOT}/../src"
 
+function get_vc_platform() {
+    local arch=$1
+    case ${arch} in
+    x86)
+        echo "VC-WIN32"
+        ;;
+    x64)
+        echo "VC-WIN64A"
+        ;;
+  esac
+}
+
 function configure_make() {
+
+    ARCH=$1
+    TARGET=$2
 
     log_info "configure windows start..."
 
     pushd .
     cd "${OPENSSL_SRC_DIR}"
 
-    PREFIX_DIR="${TOOLS_ROOT_WIN}\\..\\out\\Windows\\"
-    OUTPUT_ROOT=${TOOLS_ROOT}/../out/Windows/
+    PREFIX_DIR="${TOOLS_ROOT_WIN}\\..\\out\\Windows\\${TARGET}\\"
+    OUTPUT_ROOT=${TOOLS_ROOT}/../out/Windows/${TARGET}/
 
     if [ -d "${OUTPUT_ROOT}" ]; then
         rm -fr "${OUTPUT_ROOT}"
@@ -54,7 +78,7 @@ function configure_make() {
 
     mkdir -p ${OUTPUT_ROOT}/log
 
-    cmd.exe /c "$VCVARSALL_PATH" x64
+    cmd.exe /c "$VCVARSALL_PATH" $ARCH
 
     # check if jom exists
     local has_jom=$(cmd.exe /c "jom -version >NUL 2>&1 && echo 1 || echo 0" | tr -d '\r')
@@ -68,15 +92,17 @@ function configure_make() {
         CONFIG_PARAMS="-MT"
     fi
 
-    cmd.exe /c perl ./Configure VC-WIN64A $CONFIG_PARAMS --prefix="${PREFIX_DIR}"
+    local vcplatform=$(get_vc_platform $ARCH)
+
+    cmd.exe /c perl ./Configure $vcplatform $CONFIG_PARAMS --prefix="${PREFIX_DIR}"
 
     log_info "make windows start..."
 
-    cmd.exe /c "$VCVARSALL_PATH" x64 "&&" $MAKE clean > "${OUTPUT_ROOT}/log/windows.log" 2>/dev/null
-    cmd.exe /c "$VCVARSALL_PATH" x64 "&&" $MAKE all >> "${OUTPUT_ROOT}/log/windows.log" 2>&1
+    cmd.exe /c "$VCVARSALL_PATH" $ARCH "&&" $MAKE clean > "${OUTPUT_ROOT}/log/windows.log" 2>/dev/null
+    cmd.exe /c "$VCVARSALL_PATH" $ARCH "&&" $MAKE all >> "${OUTPUT_ROOT}/log/windows.log" 2>&1
     the_rc=$?
     if [ $the_rc -eq 0 ] ; then
-        cmd.exe /c "$VCVARSALL_PATH" x64 "&&" $MAKE install_sw "||" $MAKE install_sw >> "${OUTPUT_ROOT}/log/windows.log" 2>&1
+        cmd.exe /c "$VCVARSALL_PATH" $ARCH "&&" $MAKE install_sw "||" $MAKE install_sw >> "${OUTPUT_ROOT}/log/windows.log" 2>&1
     fi
 
     popd
@@ -84,6 +110,10 @@ function configure_make() {
 
 log_info "${PLATFORM_TYPE} openssl start..."
 
-configure_make
+for ((i = 0; i < ${#ARCHS[@]}; i++)); do
+    if [[ $# -eq 0 || "$1" == "${ARCHS[i]}" || "$1" == "${TARGETS[i]}" ]]; then
+        configure_make "${ARCHS[i]}" "${TARGETS[i]}"
+    fi
+done
 
 log_info "${PLATFORM_TYPE} openssl end..."
