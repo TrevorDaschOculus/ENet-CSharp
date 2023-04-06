@@ -2377,11 +2377,11 @@ static int enet_protocol_handle_test_mtu(ENetHost* host, ENetPeer* peer, const E
 
 	*currentData = &host->receivedData[mtu];
 	if (mtu > host->maximumPacketSize ||
-		*currentData < host->receivedData ||
+		*currentData - sizeof(uint32_t) < host->receivedData ||
 		*currentData > &host->receivedData[host->receivedDataLength])
 		return -1;
 
-	compareMtu = ENET_NET_TO_HOST_32(*(uint32_t*)(*currentData - 4));
+	compareMtu = ENET_NET_TO_HOST_32(*(uint32_t*)(*currentData - sizeof(uint32_t)));
 
 	if (mtu == compareMtu) {
 		// MTU transmission succeeded. Send verify response.
@@ -3182,7 +3182,7 @@ static int enet_protocol_send_outgoing_commands(ENetHost* host, ENetEvent* event
 
 				// clear buffer and set the last 4 bytes to the mtu
 				memset(host->packetData[1], 0, host->buffers[host->bufferCount].dataLength);
-				*(uint32_t*)(host->packetData[1] + host->buffers[host->bufferCount].dataLength - 4) = host->commands[0].testMtu.mtu;
+				*(uint32_t*)(host->packetData[1] + host->buffers[host->bufferCount].dataLength - sizeof(uint32_t)) = host->commands[0].testMtu.mtu;
 
 				++host->bufferCount;
 			}
