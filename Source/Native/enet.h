@@ -234,7 +234,7 @@ extern "C" {
 
 	enum {
 		ENET_PROTOCOL_MINIMUM_MTU = 576,
-		ENET_PROTOCOL_MAXIMUM_MTU = 4096,
+		ENET_PROTOCOL_MAXIMUM_MTU = 1500,
 		ENET_PROTOCOL_POTENTIAL_MTU_COUNT = 5,
 		ENET_PROTOCOL_MAXIMUM_PACKET_COMMANDS = 32,
 		ENET_PROTOCOL_MINIMUM_WINDOW_SIZE = 4096,
@@ -444,7 +444,8 @@ extern "C" {
 		ENET_SOCKOPT_SNDTIMEO = 7,
 		ENET_SOCKOPT_ERROR = 8,
 		ENET_SOCKOPT_NODELAY = 9,
-		ENET_SOCKOPT_IPV6_V6ONLY = 10
+		ENET_SOCKOPT_IPV6_V6ONLY = 10,
+		ENET_SOCKOPT_DONTFRAG = 11
 	} ENetSocketOption;
 
 	typedef enum _ENetSocketShutdown {
@@ -1548,7 +1549,7 @@ static const uint32_t potentialMtus[ENET_PROTOCOL_POTENTIAL_MTU_COUNT] = {
 		1232,
 		1328,
 		1460,
-		1500
+		ENET_PROTOCOL_MAXIMUM_MTU
 };
 
 uint32_t
@@ -4126,6 +4127,7 @@ ENetHost* enet_host_create(const ENetAddress* address, size_t peerCount, size_t 
 	enet_socket_set_option(host->socket, ENET_SOCKOPT_BROADCAST, 1);
 	enet_socket_set_option(host->socket, ENET_SOCKOPT_RCVBUF, bufferSize);
 	enet_socket_set_option(host->socket, ENET_SOCKOPT_SNDBUF, bufferSize);
+	enet_socket_set_option(host->socket, ENET_SOCKOPT_DONTFRAG, 1);
 
 	ENET_LOG_TRACE("Address: Setting up");
 	if (address != NULL && enet_socket_get_address(host->socket, &host->address) < 0)
@@ -4768,6 +4770,16 @@ int enet_socket_set_option(ENetSocket socket, ENetSocketOption option, int value
 
 		break;
 
+	case ENET_SOCKOPT_DONTFRAG:
+#ifdef __linux__
+		value = value ? IP_PMTUDISC_DO : IP_PMTUDISC_WANT;
+		result = setsockopt(socket, IPPROTO_IP, IP_MTU_DISCOVER, (char*)&value, sizeof(int));
+#else
+		result = setsockopt(socket, IPPROTO_IP, IP_DONTFRAG, (char*)&value, sizeof(int));
+#endif
+
+		break;
+
 	default:
 		break;
 	}
@@ -5111,6 +5123,11 @@ int enet_socket_set_option(ENetSocket socket, ENetSocketOption option, int value
 
 	case ENET_SOCKOPT_IPV6_V6ONLY:
 		result = setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&value, sizeof(int));
+
+		break;
+
+	case ENET_SOCKOPT_DONTFRAG:
+		result = setsockopt(socket, IPPROTO_IP, IP_DONTFRAGMENT, (char*)&value, sizeof(int));
 
 		break;
 
