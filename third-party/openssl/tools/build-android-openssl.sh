@@ -103,25 +103,25 @@ function set_android_cpu_feature() {
   local api=$3
   case ${arch} in
   arm-v7a | arm-v7a-neon)
-    export CFLAGS="-march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp -Wno-unused-function -fno-integrated-as -fstrict-aliasing -fPIC -DANDROID -Os -ffunction-sections -fdata-sections $(get_common_includes)"
+    export CFLAGS="-march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp -Wno-unused-function -fstrict-aliasing -fPIC -DANDROID -Os -ffunction-sections -fdata-sections $(get_common_includes)"
     export CXXFLAGS="-std=c++14 -Os -ffunction-sections -fdata-sections"
     export LDFLAGS="-march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp -Wl,--fix-cortex-a8 -Wl,--gc-sections -Os -ffunction-sections -fdata-sections $(get_common_linked_libraries ${api} ${arch})"
     export CPPFLAGS=${CFLAGS}
     ;;
   arm64-v8a)
-    export CFLAGS="-march=armv8-a -Wno-unused-function -fno-integrated-as -fstrict-aliasing -fPIC -DANDROID -Os -ffunction-sections -fdata-sections $(get_common_includes)"
+    export CFLAGS="-march=armv8-a -Wno-unused-function -fstrict-aliasing -fPIC -DANDROID -Os -ffunction-sections -fdata-sections $(get_common_includes)"
     export CXXFLAGS="-std=c++14 -Os -ffunction-sections -fdata-sections"
     export LDFLAGS="-march=armv8-a -Wl,--gc-sections -Os -ffunction-sections -fdata-sections $(get_common_linked_libraries ${api} ${arch})"
     export CPPFLAGS=${CFLAGS}
     ;;
   x86)
-    export CFLAGS="-march=i686 -mtune=i686 -mssse3 -mfpmath=sse -m32 -Wno-unused-function -fno-integrated-as -fstrict-aliasing -fPIC -DANDROID -Os -ffunction-sections -fdata-sections $(get_common_includes)"
+    export CFLAGS="-march=i686 -mtune=i686 -mssse3 -mfpmath=sse -m32 -Wno-unused-function -fstrict-aliasing -fPIC -DANDROID -Os -ffunction-sections -fdata-sections $(get_common_includes)"
     export CXXFLAGS="-std=c++14 -Os -ffunction-sections -fdata-sections"
     export LDFLAGS="-march=i686 -Wl,--gc-sections -Os -ffunction-sections -fdata-sections $(get_common_linked_libraries ${api} ${arch})"
     export CPPFLAGS=${CFLAGS}
     ;;
   x86-64)
-    export CFLAGS="-march=x86-64 -msse4.2 -mpopcnt -m64 -mtune=x86-64 -Wno-unused-function -fno-integrated-as -fstrict-aliasing -fPIC -DANDROID -Os -ffunction-sections -fdata-sections $(get_common_includes)"
+    export CFLAGS="-march=x86-64 -msse4.2 -mpopcnt -m64 -mtune=x86-64 -Wno-unused-function -fstrict-aliasing -fPIC -DANDROID -Os -ffunction-sections -fdata-sections $(get_common_includes)"
     export CXXFLAGS="-std=c++14 -Os -ffunction-sections -fdata-sections"
     export LDFLAGS="-march=x86-64 -Wl,--gc-sections -Os -ffunction-sections -fdata-sections $(get_common_linked_libraries ${api} ${arch})"
     export CPPFLAGS=${CFLAGS}
@@ -135,6 +135,13 @@ export ANDROID_NDK_HOME=${ANDROID_NDK_ROOT}
 echo ANDROID_NDK_HOME=$ANDROID_NDK_HOME
 
 OPENSSL_SRC_DIR="${TOOLS_ROOT}/../src"
+
+if [[ $(get_host_os) == "windows" ]]
+then
+  # OpenSSL Configure expects to find clang on path, but the windows clang is called clang.exe
+  # create symlink to work around this shortfall
+  ln -s clang.exe $(dirname $(which clang.exe))/clang 2>/dev/null
+fi
 
 function configure_make() {
 
