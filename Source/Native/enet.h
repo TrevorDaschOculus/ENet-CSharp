@@ -4772,7 +4772,7 @@ int enet_socket_set_option(ENetSocket socket, ENetSocketOption option, int value
 
 	case ENET_SOCKOPT_DONTFRAG:
 #ifdef __linux__
-		value = value ? IP_PMTUDISC_DO : IP_PMTUDISC_WANT;
+		value = value ? IP_PMTUDISC_PROBE : IP_PMTUDISC_WANT;
 		result = setsockopt(socket, IPPROTO_IP, IP_MTU_DISCOVER, (char*)&value, sizeof(int));
 #else
 		result = setsockopt(socket, IPPROTO_IP, IP_DONTFRAG, (char*)&value, sizeof(int));
