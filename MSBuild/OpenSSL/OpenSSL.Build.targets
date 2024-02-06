@@ -32,13 +32,15 @@ OpenSSLTarget - The Configure target for openssl
     <PropertyGroup>
         <OpenSSLSourceDir Condition="'$(OpenSSLSourceDir)' == ''">$(SlnDir)third-party/openssl/src</OpenSSLSourceDir>
         <OpenSSLBinaryDir Condition="'$(OpenSSLBinaryDir)' == '' AND '$(OSPlatformWindows)' == 'true'">$(SlnDir)third-party/openssl/out/Windows</OpenSSLBinaryDir>
-        <OpenSSLBinaryDir Condition="'$(OpenSSLBinaryDir)' == '' AND '$(OSPlatformWindows)' != 'true'">$(SlnDir)third-party/openssl/out/Linux</OpenSSLBinaryDir>
-        <OpenSSLPlatform Condition="'$(Platform)' == 'x86_64' OR '$(Platform)' == 'x64' OR '$(Platform)' == 'AnyCPU'">x64</OpenSSLPlatform>
+        <OpenSSLBinaryDir Condition="'$(OpenSSLBinaryDir)' == '' AND '$(OSPlatformLinux)' == 'true'">$(SlnDir)third-party/openssl/out/Linux</OpenSSLBinaryDir>
+        <OpenSSLBinaryDir Condition="'$(OpenSSLBinaryDir)' == '' AND '$(OSPlatformOSX)' == 'true'">$(SlnDir)third-party/openssl/out/MacOS</OpenSSLBinaryDir>
+        <OpenSSLPlatform Condition="'$(Platform)' == 'x86_64' OR '$(Platform)' == 'x64'">x64</OpenSSLPlatform>
         <OpenSSLPlatform Condition="'$(Platform)' == 'x86'">x86</OpenSSLPlatform>
         <OpenSSLTarget Condition="'$(OSPlatformWindows)' == 'true' AND '$(OpenSSLPlatform)' == 'x64'">VC-WIN64A</OpenSSLTarget>
-        <OpenSSLTarget Condition="'$(OSPlatformWindows)' != 'true' AND '$(OpenSSLPlatform)' == 'x64'">linux-x86_64-clang</OpenSSLTarget>
         <OpenSSLTarget Condition="'$(OSPlatformWindows)' == 'true' AND '$(OpenSSLPlatform)' == 'x86'">VC-WIN32</OpenSSLTarget>
         <OpenSSLTarget Condition="'$(OSPlatformWindows)' != 'true' AND '$(OpenSSLPlatform)' == 'x86'">linux-x86-clang</OpenSSLTarget>
+        <OpenSSLTarget Condition="'$(OSPlatformLinux)' == 'true' AND '$(OpenSSLPlatform)' == 'x64'">linux-x86_64-clang</OpenSSLTarget>
+        <OpenSSLTarget Condition="'$(OSPlatformOSX)' == 'true'">darwin64-arm64-cc</OpenSSLTarget>
         <OpenSSLOpts Condition="'$(Configuration)' == 'Debug'">$(OpenSSLOpts) --debug</OpenSSLOpts>
         <VCVarsAll Condition="'$(OSPlatformWindows)' == 'true'">cmd.exe /c &quot;&quot;$(DevEnvDir)..\..\VC\Auxiliary\Build\vcvarsall.bat&quot; $(OpenSSLPlatform) &amp;&quot;</VCVarsAll>
     </PropertyGroup>
@@ -103,8 +105,10 @@ OpenSSLTarget - The Configure target for openssl
         <!-- copy openssl libraries to the version with a d suffix for cmake to find for debug builds -->
         <Copy Condition="'$(OSPlatformWindows)' == 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libcrypto.lib" DestinationFiles="$(OpenSSLBinaryDir)/lib/libcryptod.lib" />
         <Copy Condition="'$(OSPlatformWindows)' == 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libssl.lib" DestinationFiles="$(OpenSSLBinaryDir)/lib/libssld.lib" />
-        <Copy Condition="'$(OSPlatformWindows)' != 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libcrypto.a" DestinationFiles="$(OpenSSLBinaryDir)/lib/libcryptod.a" />
-        <Copy Condition="'$(OSPlatformWindows)' != 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libssl.a" DestinationFiles="$(OpenSSLBinaryDir)/lib/libssld.a" />
+        <Copy Condition="'$(OSPlatformLinux)' == 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libcrypto.a" DestinationFiles="$(OpenSSLBinaryDir)/lib/libcryptod.a" />
+        <Copy Condition="'$(OSPlatformOSX)' == 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libcrypto.dylib" DestinationFiles="$(OpenSSLBinaryDir)/lib/libcryptod.dylib" />
+        <Copy Condition="'$(OSPlatformLinux)' == 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libssl.a" DestinationFiles="$(OpenSSLBinaryDir)/lib/libssld.a" />
+        <Copy Condition="'$(OSPlatformOSX)' == 'true'" SourceFiles="$(OpenSSLBinaryDir)/lib/libssl.dylib" DestinationFiles="$(OpenSSLBinaryDir)/lib/libssld.dylib" />
         <OnError ExecuteTargets="OpenSSLBuildFailed" />
     </Target>
 
