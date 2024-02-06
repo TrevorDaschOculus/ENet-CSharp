@@ -24,10 +24,11 @@ SOFTWARE.
     <Target Name="OpenSSLContentCopy" AfterTargets="Build">
         <PropertyGroup>
             <OpenSSLVersion Condition="'$(OSPlatformWindows)' == 'true'">-1_1</OpenSSLVersion>
-            <OpenSSLArch Condition="'$(Platform)' == 'x86_64' OR '$(Platform)' == 'x64' OR '$(Platform)' == 'AnyCPU'">-x64</OpenSSLArch>
+            <OpenSSLArch Condition="'$(Platform)' == 'x86_64' OR '$(Platform)' == 'x64'">-x64</OpenSSLArch>
             <OpenSSLArch Condition="'$(Platform)' == 'x86'"></OpenSSLArch>
             <OpenSSLLibDir Condition="'$(OSPlatformWindows)' == 'true'">$(SlnDir)third-party/openssl/out/Windows/bin</OpenSSLLibDir>
-            <OpenSSLLibDir Condition="'$(OSPlatformWindows)' != 'true'">$(SlnDir)third-party/openssl/out/Linux/lib</OpenSSLLibDir>
+            <OpenSSLLibDir Condition="'$(OSPlatformLinux)' == 'true'">$(SlnDir)third-party/openssl/out/Linux/lib</OpenSSLLibDir>
+            <OpenSSLLibDir Condition="'$(OSPlatformOSX)' == 'true'">$(SlnDir)third-party/openssl/out/MacOS/lib</OpenSSLLibDir>
 
             <CryptoPluginName>libcrypto$(OpenSSLVersion)$(OpenSSLArch).$(PluginExt)</CryptoPluginName>
             <SslPluginName>libssl$(OpenSSLVersion)$(OpenSSLArch).$(PluginExt)</SslPluginName>
